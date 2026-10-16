@@ -63,6 +63,7 @@ docs/           research, architecture, security, deployment, testing
 | `npm run reset-db` | delete and recreate the database |
 | `npm test` | full test suite (`node --test`) |
 | `node scripts/browser-e2e.mjs` | end-to-end UI check in headless Edge (API must be running) |
+| `node scripts/dev-bypass-e2e.mjs` | portal-button bypass check (set `EXPECT_BYPASS=off` to test the fallback) |
 
 ## Configuration
 
@@ -71,9 +72,32 @@ enrolment code, school policy defaults, notification webhook) is env-driven — 
 [docs/deployment.md](docs/deployment.md) for the production checklist, including the
 `API_BASE_URL` Pages variable that connects the hosted frontend to the API.
 
+## Development bypass (temporary)
+
+For local demos, the homepage **Student portal** and **Staff sign-in** buttons open the real
+dashboards directly via `POST /api/auth/dev-session` — no password needed. The identity is
+auto-created (`MFS/26/0001` student, `HM-BALMER` housemaster with
+`Entryout!2026`-style credentials never involved); sessions are ordinary DB sessions with the
+same cookies, CSRF and authorization checks as a normal login.
+
+Safety layers (all must hold for the bypass to work):
+
+1. **Server** — `config.devBypassAuth` is hard-off when `NODE_ENV=production`; otherwise
+   `DEV_BYPASS_AUTH=false|0|off|no` disables it (then `/api/auth/dev-session` is not even
+   registered → plain 404).
+2. **Frontend** — `window.ENTRYOUT_CONFIG.devBypassAuth` must be strictly `true` (the Pages
+   workflow writes `false` into the generated config); otherwise the buttons behave exactly
+   as before and navigate to `#/signin`.
+3. **Fallback** — any server error/404 on the dev-session call falls back to the original
+   sign-in pages.
+
+To restore the classic flow locally: set `DEV_BYPASS_AUTH=false` in `.env` and restart the
+API — the buttons then always show the sign-in pages. Normal password login, logout,
+registration and every authorization rule are untouched in all modes.
+
 ## Status
 
-- ✅ 50/50 automated tests passing (auth, workflow, security, validation, static)
-- ✅ 28/28 browser end-to-end checks passing (headless Edge)
+- ✅ 65/65 automated tests passing (auth, workflow, security, validation, static, dev bypass incl. kill-switch + production hard-off)
+- ✅ 28/28 browser end-to-end checks passing (headless Edge) + 32/32 bypass-on, 19/19 bypass-off
 - ✅ Frontend deploys to GitHub Pages via GitHub Actions
 - ⏳ API hosting + outbound SMS/email webhook still to be provisioned

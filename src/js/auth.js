@@ -1,4 +1,6 @@
 import { apiGet, apiPost } from './api.js';
+import { navigate } from './router.js';
+import { DEV_BYPASS_AUTH } from './config.js';
 
 /**
  * Session state for the current browser tab.
@@ -65,6 +67,44 @@ export async function signOut() {
     session.profile = null;
     session.houses = [];
     emit();
+  }
+}
+
+/**
+ * Temporary development bypass (see config.js `devBypassAuth`).
+ * Signs in as the server's demo test identity through the normal session API —
+ * no credentials involved, and nothing about the real sign-in pages changes.
+ * If the API has the bypass disabled (e.g. production), this throws and the
+ * caller falls back to the original sign-in page.
+ */
+export async function devSessionSignIn(kind) {
+  const data = await apiPost('/api/auth/dev-session', { role: kind });
+  session.user = data.user;
+  session.profile = data.profile;
+  session.houses = [];
+  session.loaded = true;
+  emit();
+  return data;
+}
+
+/**
+ * Entry point for the portal buttons: with the development bypass active it
+ * opens the matching dashboard directly; otherwise (bypass off, production, or
+ * API unavailable) it navigates to the original sign-in page, exactly as before.
+ */
+export async function portalSignIn(kind) {
+  const fallback = kind === 'student' ? '#/signin?role=student' : '#/signin';
+  if (!DEV_BYPASS_AUTH || session.user) {
+    navigate(session.user ? homeRouteFor(session.user.role) : fallback);
+    return false;
+  }
+  try {
+    await devSessionSignIn(kind);
+    navigate(kind === 'student' ? '#/app' : '#/staff');
+    return true;
+  } catch {
+    navigate(fallback); // bypass unavailable → original authentication flow
+    return false;
   }
 }
 

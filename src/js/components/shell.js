@@ -1,5 +1,5 @@
 import { h, clear } from '../dom.js';
-import { session, signOut, homeRouteFor, roleLabel } from '../auth.js';
+import { session, signOut, homeRouteFor, roleLabel, portalSignIn } from '../auth.js';
 import { navigate } from '../router.js';
 import { APP_NAME } from '../config.js';
 
@@ -80,9 +80,18 @@ export function renderShell() {
     }, 'Sign out'));
   } else {
     actions.append(
-      h('a', { class: 'btn btn-secondary btn-sm', href: '#/signin' }, 'Staff sign in'),
-      h('a', { class: 'btn btn-sm', href: '#/signin?role=student' }, 'Student portal'));
-    mobile.append(h('a', { class: 'btn', href: '#/signin' }, 'Sign in'));
+      h('a', {
+        class: 'btn btn-secondary btn-sm', href: '#/signin',
+        onclick: (e) => { e.preventDefault(); portalSignIn('staff'); },
+      }, 'Staff sign in'),
+      h('a', {
+        class: 'btn btn-sm', href: '#/signin?role=student',
+        onclick: (e) => { e.preventDefault(); portalSignIn('student'); },
+      }, 'Student portal'));
+    mobile.append(h('a', {
+      class: 'btn', href: '#/signin',
+      onclick: (e) => { e.preventDefault(); portalSignIn('staff'); },
+    }, 'Sign in'));
   }
 
   toggle.onclick = () => {

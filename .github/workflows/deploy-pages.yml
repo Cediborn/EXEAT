@@ -31,7 +31,9 @@ jobs:
           # Runtime API base: filled from the API_BASE_URL repository variable.
           # Empty value = "same origin"; the app then shows its honest
           # "backend not connected" banner instead of faking data.
-          printf "window.ENTRYOUT_CONFIG = { apiBase: '%s', appName: 'Entryout' };\n" \
+          # devBypassAuth is always false in production builds: the temporary
+          # local dashboard bypass can never ship to GitHub Pages.
+          printf "window.ENTRYOUT_CONFIG = { apiBase: '%s', appName: 'Entryout', devBypassAuth: false };\n" \
             "${{ vars.API_BASE_URL }}" > dist/config.js
 
       - uses: actions/upload-pages-artifact@v3

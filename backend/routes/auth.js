@@ -117,3 +117,71 @@ authRouter.post('/register', loginRateLimit({ max: Math.max(config.rateLimits.lo
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   res.status(201).json({ user: publicUser(user), profile: profileFor(user), csrfToken: session.csrf });
 }));
+
+/* -------------------------------------------------------------------------
+ * Development-only dashboard bypass (temporary, reversible).
+ * Only mounted when config.devBypassAuth is true — in production this route
+ * does not exist at all (plain 404), so it cannot be activated from a URL,
+ * the browser console, or any client-side setting.
+ * It issues a normal session for a clearly-labelled demo identity; every
+ * other endpoint keeps its existing authorization checks.
+ * ---------------------------------------------------------------------- */
+if (config.devBypassAuth) {
+  const DEV_IDENTITIES = {
+    student: {
+      username: 'MFS/26/0001',
+      role: 'student',
+      fullName: 'Dev Test Student',
+      profile: {
+        indexNumber: 'MFS/26/0001', classYear: 'SHS 2', house: 'Balmer-Acquaah',
+        guardianName: 'Dev Guardian', guardianPhone: '0241110001',
+      },
+    },
+    staff: {
+      username: 'HM-BALMER',
+      role: 'housemaster',
+      fullName: 'Dev Test Housemaster',
+      houses: ['Balmer-Acquaah'],
+    },
+  };
+
+  async function ensureDevIdentity(db, def) {
+    const existing = db.prepare('SELECT * FROM users WHERE username = ?').get(def.username);
+    if (existing) {
+      if (existing.role !== def.role) {
+        throw badRequest(`Test identity ${def.username} exists with a different role. Run "npm run reset-db && npm run seed".`);
+      }
+      return existing;
+    }
+    const id = newId();
+    const now = nowIso();
+    // Random password: the demo identity cannot be used to log in through the
+    // normal password form, and no credential is stored or shown anywhere.
+    const hash = await hashPassword(crypto.randomBytes(32).toString('hex'));
+    db.prepare(`INSERT INTO users (id, username, email, password_hash, full_name, role, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`).run(id, def.username, null, hash, def.fullName, def.role, now, now);
+    for (const house of def.houses || []) {
+      db.prepare('INSERT OR IGNORE INTO staff_assignments (user_id, house) VALUES (?, ?)').run(id, house);
+    }
+    if (def.profile) {
+      db.prepare('INSERT INTO students (user_id, index_number, class_year, house, guardian_name, guardian_phone) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, def.profile.indexNumber, def.profile.classYear, def.profile.house, def.profile.guardianName, def.profile.guardianPhone);
+    }
+    return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  }
+
+  authRouter.post('/dev-session', asyncHandler(async (req, res) => {
+    const kind = cleanText(req.body?.role, { max: 20 });
+    const def = DEV_IDENTITIES[kind];
+    if (!def) throw badRequest('Choose the test identity: "student" or "staff".', { role: 'student or staff' });
+
+    const db = getDb();
+    const user = await ensureDevIdentity(db, def);
+    if (!user.active) throw badRequest(`Test identity ${def.username} is disabled.`);
+
+    const session = createSession(user.id, { ip: req.ip, userAgent: req.get('user-agent') });
+    setSessionCookies(res, session);
+    audit(user.id, 'dev_session', 'user', user.id, { kind });
+    res.json({ user: publicUser(user), profile: profileFor(user), csrfToken: session.csrf });
+  }));
+}

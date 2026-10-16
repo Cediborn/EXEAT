@@ -12,4 +12,11 @@
 window.ENTRYOUT_CONFIG = {
   apiBase: '',
   appName: 'Entryout',
+  // Temporary development bypass: when true, the Student Portal / Staff sign-in
+  // buttons open the dashboards directly with a demo test session instead of the
+  // login page. The server independently gates this (DEV_BYPASS_AUTH, never
+  // active when NODE_ENV=production) — if the API has the bypass disabled the
+  // buttons simply fall back to the original sign-in page. The GitHub Pages
+  // deploy workflow writes `devBypassAuth: false` here for production.
+  devBypassAuth: true,
 };

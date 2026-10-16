@@ -1,5 +1,5 @@
 import { h } from '../dom.js';
-import { session } from '../auth.js';
+import { session, portalSignIn } from '../auth.js';
 import { navigate } from '../router.js';
 import { apiGet } from '../api.js';
 import { setTitle } from '../components/shell.js';
@@ -46,11 +46,11 @@ export async function landingPage() {
         h('div', { class: 'hero-actions' },
           isStudent
             ? h('button', { class: 'btn btn-lg', type: 'button', onclick: () => navigate('#/app') }, 'Go to my dashboard')
-            : h('button', { class: 'btn btn-lg', type: 'button', onclick: () => navigate('#/signin?role=student') }, 'Student portal'),
+            : h('button', { class: 'btn btn-lg', type: 'button', onclick: portalClick('student') }, 'Student portal'),
           h('button', {
             class: 'btn btn-secondary btn-lg',
             type: 'button',
-            onclick: () => navigate(session.user ? homeFor(session.user.role) : '#/signin'),
+            onclick: session.user ? () => navigate(homeFor(session.user.role)) : portalClick('staff'),
           }, session.user ? 'My workspace' : 'Staff sign in')),
         h('p', { class: 'hero-note' },
           'Internal and external exeats · Housemaster and Senior Housemaster approvals · Digital gate pass')),
@@ -103,10 +103,27 @@ export async function landingPage() {
       h('p', { style: { color: 'var(--text-muted)', 'margin-bottom': 'var(--space-5)' } },
         'Sign in with the student ID given to you by the school.'),
       h('div', { class: 'btn-row', style: { justifyContent: 'center' } },
-        h('button', { class: 'btn', type: 'button', onclick: () => navigate('#/signin?role=student') }, 'Student sign in'),
+        h('button', { class: 'btn', type: 'button', onclick: portalClick('student') }, 'Student sign in'),
         h('button', { class: 'btn btn-secondary', type: 'button', onclick: () => navigate('#/help') }, 'How it works'))));
 
   return page;
+}
+
+/**
+ * Portal buttons: with the development bypass enabled they open the dashboard
+ * directly via a demo test session; otherwise they go to the sign-in page.
+ * Behaviour, labels and styling outside of that are unchanged.
+ */
+function portalClick(kind) {
+  return async (event) => {
+    const btn = event.currentTarget;
+    if (btn) btn.disabled = true;
+    try {
+      await portalSignIn(kind);
+    } finally {
+      if (btn && btn.isConnected) btn.disabled = false;
+    }
+  };
 }
 
 function step(number, title, text) {

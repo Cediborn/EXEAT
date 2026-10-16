@@ -43,10 +43,20 @@ const list = (key, fallback = []) => {
 
 const nodeEnv = process.env.NODE_ENV || 'development';
 
+/**
+ * Development-only dashboard bypass (temporary, reversible).
+ * When enabled, POST /api/auth/dev-session issues a real session for a seeded
+ * demo identity so the dashboards can be inspected without signing in.
+ * HARD OFF in production (regardless of env vars), and DEV_BYPASS_AUTH=false
+ * switches it off in any other environment. All authorization checks on the
+ * rest of the API are untouched either way.
+ */
+const bypassKillSwitch = String(process.env.DEV_BYPASS_AUTH || '').toLowerCase();
 export const config = {
   nodeEnv,
   isTest: nodeEnv === 'test',
   isProduction: nodeEnv === 'production',
+  devBypassAuth: nodeEnv !== 'production' && !['false', '0', 'off', 'no'].includes(bypassKillSwitch),
   port: num('PORT', 8787),
   apiPublicUrl: (process.env.API_PUBLIC_URL || `http://localhost:${num('PORT', 8787)}`).replace(/\/$/, ''),
   allowedOrigins: list('ALLOWED_ORIGINS'),
