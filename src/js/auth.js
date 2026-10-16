@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './api.js';
+import { apiGet, apiPost, setCsrfToken } from './api.js';
 import { navigate } from './router.js';
 import { DEV_BYPASS_AUTH } from './config.js';
 
@@ -30,10 +30,12 @@ export async function loadSession() {
     session.user = data.user;
     session.profile = data.profile;
     session.houses = data.houses || [];
+    if (data.csrfToken) setCsrfToken(data.csrfToken);
   } catch {
     session.user = null;
     session.profile = null;
     session.houses = [];
+    setCsrfToken(null);
   } finally {
     session.loaded = true;
     emit();
@@ -46,6 +48,7 @@ export async function signIn(identifier, password) {
   session.user = data.user;
   session.profile = data.profile;
   session.loaded = true;
+  if (data.csrfToken) setCsrfToken(data.csrfToken);
   emit();
   return data;
 }
@@ -55,6 +58,7 @@ export async function register(payload) {
   session.user = data.user;
   session.profile = data.profile;
   session.loaded = true;
+  if (data.csrfToken) setCsrfToken(data.csrfToken);
   emit();
   return data;
 }
@@ -66,6 +70,7 @@ export async function signOut() {
     session.user = null;
     session.profile = null;
     session.houses = [];
+    setCsrfToken(null);
     emit();
   }
 }
@@ -83,6 +88,7 @@ export async function devSessionSignIn(kind) {
   session.profile = data.profile;
   session.houses = [];
   session.loaded = true;
+  if (data.csrfToken) setCsrfToken(data.csrfToken);
   emit();
   return data;
 }

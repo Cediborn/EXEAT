@@ -95,6 +95,21 @@ To restore the classic flow locally: set `DEV_BYPASS_AUTH=false` in `.env` and r
 API — the buttons then always show the sign-in pages. Normal password login, logout,
 registration and every authorization rule are untouched in all modes.
 
+### Temporary live-demo wiring (Pages → local API)
+
+So the bypass can also be demonstrated from the hosted site, the Pages build currently
+points at the developer's own API: `API_BASE_URL=http://localhost:8787` (repo variable),
+`devBypassAuth: true` in `deploy-pages.yml`, and the local `.env` allows the Pages origin
+with cross-site cookies (`ALLOWED_ORIGINS=…,https://cediborn.github.io`, `COOKIE_SECURE=true`
+→ `SameSite=None; Secure`). Only the developer's own machine can reach that API; everyone
+else just sees the honest "backend not connected" banner.
+
+- Browsers show a one-time **local-network permission prompt** (Chrome/Edge) the first
+  time the page talks to localhost — allow it.
+- To undo: delete the `API_BASE_URL` repo variable, set `devBypassAuth: false` in the
+  workflow, revert the `.env` lines, restart the API. The site returns to
+  static-with-banner mode immediately.
+
 ## Status
 
 - ✅ 65/65 automated tests passing (auth, workflow, security, validation, static, dev bypass incl. kill-switch + production hard-off)

@@ -30,6 +30,7 @@ test('development dashboard bypass (enabled)', async (t) => {
     assert.equal(me.status, 200);
     assert.equal(me.json.user.id, res.json.user.id);
     assert.equal(me.json.user.role, 'student');
+    assert.ok(me.json.csrfToken, 'csrf token is re-issued for cross-origin frontends');
   });
 
   await t.test('student dev-session reaches real student data endpoints only', async () => {

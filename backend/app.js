@@ -29,6 +29,11 @@ export function createApp() {
       res.set('Access-Control-Allow-Headers', 'content-type,x-csrf-token,idempotency-key');
       res.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
       res.set('Access-Control-Max-Age', '600');
+      // Chrome/Edge ask for this on preflights from a public page (GitHub
+      // Pages) to a local-network API (the developer's localhost).
+      if (req.get('access-control-request-private-network')) {
+        res.set('Access-Control-Allow-Private-Network', 'true');
+      }
     }
     if (req.method === 'OPTIONS') return res.status(204).end();
     next();

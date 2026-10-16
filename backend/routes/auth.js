@@ -54,7 +54,15 @@ authRouter.post('/logout', asyncHandler(async (req, res) => {
 }));
 
 authRouter.get('/me', requireAuth, asyncHandler(async (req, res) => {
-  res.json({ user: publicUser(req.user), profile: profileFor(req.user), houses: req.houses });
+  // csrfToken is returned so a hosted frontend (different origin, where
+  // JavaScript cannot read the localhost CSRF cookie) can still send the
+  // X-CSRF-Token header after a page refresh.
+  res.json({
+    user: publicUser(req.user),
+    profile: profileFor(req.user),
+    houses: req.houses,
+    csrfToken: req.session.csrf_token || null,
+  });
 }));
 
 authRouter.post('/register', loginRateLimit({ max: Math.max(config.rateLimits.loginPerIdentifier, 10) }), asyncHandler(async (req, res) => {

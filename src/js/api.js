@@ -25,6 +25,18 @@ function readCookie(name) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/**
+ * Fallback CSRF token for cross-origin hosting (e.g. GitHub Pages talking to
+ * the local API): JavaScript on another origin cannot read the localhost CSRF
+ * cookie, so the token from the login/me JSON responses is kept in memory.
+ * The cookie still takes priority on same-origin deployments.
+ */
+let sessionCsrfToken = null;
+
+export function setCsrfToken(token) {
+  sessionCsrfToken = token || null;
+}
+
 export async function api(path, { method = 'GET', body, headers = {}, query } = {}) {
   let url = `${API_BASE}${path}`;
   if (query) {
@@ -36,7 +48,7 @@ export async function api(path, { method = 'GET', body, headers = {}, query } = 
     if (qs) url += `?${qs}`;
   }
 
-  const csrf = readCookie('entryout_csrf');
+  const csrf = readCookie('entryout_csrf') || sessionCsrfToken;
   const init = {
     method,
     credentials: 'include',
