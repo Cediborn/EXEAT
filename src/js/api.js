@@ -77,13 +77,17 @@ export const apiPost = (path, body, opts) => api(path, { ...opts, method: 'POST'
 export const apiPatch = (path, body, opts) => api(path, { ...opts, method: 'PATCH', body });
 export const apiPut = (path, body, opts) => api(path, { ...opts, method: 'PUT', body });
 
-/** Lightweight reachability probe used by the shell. */
+/**
+ * Lightweight reachability probe used by the shell.
+ * A static host (e.g. GitHub Pages) answers /api/health with an HTML 404 page,
+ * so only a real `{ ok: true }` JSON payload counts as reachable — otherwise the
+ * UI must say the backend is not connected instead of pretending.
+ */
 export async function checkHealth() {
   try {
-    await apiGet('/api/health');
-    return true;
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 0) return false;
-    return true; // server answered, even with an error
+    const data = await apiGet('/api/health');
+    return !!(data && data.ok);
+  } catch {
+    return false;
   }
 }
