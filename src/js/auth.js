@@ -1,6 +1,7 @@
 import { apiGet, apiPost, setCsrfToken } from './api.js';
 import { navigate } from './router.js';
 import { DEV_BYPASS_AUTH } from './config.js';
+import { toast } from './components/ui.js';
 
 /**
  * Session state for the current browser tab.
@@ -108,8 +109,14 @@ export async function portalSignIn(kind) {
     await devSessionSignIn(kind);
     navigate(kind === 'student' ? '#/app' : '#/staff');
     return true;
-  } catch {
+  } catch (err) {
     navigate(fallback); // bypass unavailable → original authentication flow
+    if (DEV_BYPASS_AUTH && err && err.status === 0) {
+      // Network-level failure (typical when browsing the hosted site: the
+      // browser blocked the first request to the developer's local API behind
+      // its one-time "local network access" prompt). Allow it and click again.
+      toast('Could not reach the local demo API. If your browser asked for local-network access, allow it, then click the button again.', { type: 'error', title: 'Demo session unavailable' });
+    }
     return false;
   }
 }
