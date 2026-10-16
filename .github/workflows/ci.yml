@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  api-tests:
+    name: API + security + static tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  browser-e2e:
+    name: Browser end-to-end (headless Edge)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Seed database
+        run: npm run seed
+      - name: Start API
+        run: |
+          Start-Process -FilePath node -ArgumentList "backend/server.js" -WindowStyle Hidden
+          $ok = $false
+          foreach ($i in 1..30) {
+            try {
+              $r = Invoke-WebRequest -Uri http://localhost:8787/api/health -UseBasicParsing
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $ok) { Write-Error "API did not start"; exit 1 }
+      - name: Run browser E2E
+        run: node scripts/browser-e2e.mjs
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: ${{ runner.temp }}\entryout-e2e\*.png
+          if-no-files-found: ignore

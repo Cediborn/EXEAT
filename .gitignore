@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Data (SQLite databases, uploads)
+*.sqlite
+*.sqlite3
+*.db
+data/
+backend/data/
+
+# Logs & OS files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test / tooling output
+coverage/
+.nyc_output/
+tmp/
+.cache/
+tests-last.txt
+*.e2e.log
+
+# Editors
+.vscode/
+.idea/
+*.swp

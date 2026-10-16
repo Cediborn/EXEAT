@@ -1,0 +1,23 @@
+{
+  "name": "entryout",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Entryout - digital exeat management for boarding schools (Mfantsipim School pilot).",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node --watch backend/server.js",
+    "migrate": "node backend/scripts/migrate.js",
+    "seed": "node backend/scripts/seed.js",
+    "reset-db": "node backend/scripts/reset-db.js",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "serve": "node backend/server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4"
+  }
+}

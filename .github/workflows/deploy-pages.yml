@@ -1,0 +1,42 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage static site
+        run: |
+          mkdir -p dist
+          cp index.html dist/
+          cp -r src public dist/
+          # Runtime API base: filled from the API_BASE_URL repository variable.
+          # Empty value = "same origin"; the app then shows its honest
+          # "backend not connected" banner instead of faking data.
+          printf "window.ENTRYOUT_CONFIG = { apiBase: '%s', appName: 'Entryout' };\n" \
+            "${{ vars.API_BASE_URL }}" > dist/config.js
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
