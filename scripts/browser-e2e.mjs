@@ -148,7 +148,14 @@ async function main() {
   check('landing hero renders', /Your exeat/.test(heroText), heroText.slice(0, 40));
   const steps = await session.evaluate("document.querySelectorAll('.step').length");
   check('landing shows 3 steps', steps === 3, `${steps} steps`);
-  const announcementsLoaded = await session.evaluate("document.querySelectorAll('.announce').length");
+  const announcementsLoaded = await session.evaluate(async () => {
+    for (let i = 0; i < 40; i += 1) {
+      if (document.querySelectorAll('.announce').length > 0
+        || document.body.textContent.includes('No announcements right now')) break;
+      await new Promise((res) => setTimeout(res, 250));
+    }
+    return document.querySelectorAll('.announce').length;
+  });
   check('announcements fetched from API', announcementsLoaded > 0, `${announcementsLoaded} shown`);
   await session.screenshot('01-landing-desktop');
   await session.setViewport(375, 780);
@@ -205,10 +212,19 @@ async function main() {
     set('#returnDate', r); set('#returnTime', '23:30');
     document.querySelector('form').requestSubmit();
     await new Promise((res) => setTimeout(res, 600));
-    const reviewBtn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Submit request');
-    if (!reviewBtn) return { ok: false, reason: 'review step missing' };
-    reviewBtn.click();
+    const submitBtn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Submit request');
+    if (!submitBtn) return { ok: false, reason: 'review step missing' };
+    submitBtn.click();
     await new Promise((res) => setTimeout(res, 2500));
+    // The form now ends on a confirmation screen showing the reference;
+    // "Track this request" opens the new request's detail page.
+    if (!document.body.textContent.includes('Request submitted')) {
+      return { ok: false, reason: 'no confirmation screen', hash: location.hash };
+    }
+    const track = [...document.querySelectorAll('button')].find((b) => /Track this request/.test(b.textContent));
+    if (!track) return { ok: false, reason: 'no track button' };
+    track.click();
+    await new Promise((res) => setTimeout(res, 1500));
     return { ok: true, hash: location.hash };
   });
   check('student can submit a request through the UI', applied.ok && /#\/app\/requests\//.test(applied.hash || ''), JSON.stringify(applied));

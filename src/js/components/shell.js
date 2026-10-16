@@ -1,7 +1,7 @@
 import { h, clear } from '../dom.js';
 import { session, signOut, homeRouteFor, roleLabel, portalSignIn } from '../auth.js';
 import { navigate } from '../router.js';
-import { APP_NAME } from '../config.js';
+import { APP_NAME, DEMO_MODE } from '../config.js';
 
 const PUBLIC_LINKS = [
   { href: '#/', label: 'Home' },
@@ -59,6 +59,10 @@ export function renderShell() {
   if (session.user) {
     const home = homeRouteFor(session.user.role);
     actions.append(
+      DEMO_MODE ? h('span', {
+        class: 'badge badge-neutral demo-role-badge',
+        title: 'Demo session',
+      }, `Demo · ${roleLabel(session.user.role)}`) : null,
       h('a', { class: 'btn btn-secondary btn-sm', href: home }, session.user.fullName.split(' ')[0] || 'Account'),
       h('button', {
         class: 'btn btn-sm',

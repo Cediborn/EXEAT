@@ -4,6 +4,7 @@ import { session, loadSession, homeRouteFor } from './auth.js';
 import { renderShell, showBanner, setTitle, closeMobileNav } from './components/shell.js';
 import { loadingBlock } from './components/ui.js';
 import { checkHealth } from './api.js';
+import { DEMO_MODE } from './config.js';
 
 import { landingPage } from './pages/landing.js';
 import { helpPage } from './pages/help.js';
@@ -98,7 +99,10 @@ async function boot() {
   onChangeKeepHash();
 
   const [reachable] = await Promise.all([checkHealth(), loadSession()]);
-  if (!reachable) {
+  if (DEMO_MODE) {
+    showBanner('info',
+      'Demo mode: this is a self-contained demonstration. Data is sample data, stored only in this browser — nothing is sent anywhere.');
+  } else if (!reachable) {
     showBanner('danger',
       'The Entryout server is not reachable from this page. Pages will load, but sign-in and request actions need the API to be configured and running.');
   } else if (session.user) {

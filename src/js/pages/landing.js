@@ -4,6 +4,7 @@ import { navigate } from '../router.js';
 import { apiGet } from '../api.js';
 import { setTitle } from '../components/shell.js';
 import { skeletonCards, alertBox } from '../components/ui.js';
+import { iconClock, iconShieldCheck, iconPhone } from '../components/icon.js';
 import { formatDateTime } from '../format.js';
 
 export async function landingPage() {
@@ -86,9 +87,9 @@ export async function landingPage() {
     /* Features */
     h('section', { class: 'section' },
       h('div', { class: 'feature-grid reveal-stagger' },
-        feature('⏱', 'Faster reviews', 'No more queuing with the exeat book. Requests reach the right housemaster instantly.'),
-        feature('🔐', 'Verified passes', 'Every pass is issued by the school record — a screenshot cannot fake an approval.'),
-        feature('📱', 'Built for phones', 'Apply, track and show your pass from any phone, even on a slow connection.'))),
+        feature(iconClock(), 'Faster reviews', 'No more queuing with the exeat book. Requests reach the right housemaster instantly.'),
+        feature(iconShieldCheck(), 'Verified passes', 'Every pass is issued by the school record — a screenshot cannot fake an approval.'),
+        feature(iconPhone(), 'Built for phones', 'Apply, track and show your pass from any phone, even on a slow connection.'))),
 
     /* Announcements */
     h('section', { class: 'section' },
@@ -133,9 +134,9 @@ function step(number, title, text) {
     h('p', null, text));
 }
 
-function feature(icon, title, text) {
+function feature(iconNode, title, text) {
   return h('div', { class: 'feature' },
-    h('h3', null, h('span', { class: 'feature-icon', 'aria-hidden': 'true' }, icon), title),
+    h('h3', null, h('span', { class: 'feature-icon', 'aria-hidden': 'true' }, iconNode), title),
     h('p', null, text));
 }
 

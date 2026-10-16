@@ -9,10 +9,13 @@ import { formatDateTime } from '../format.js';
 import { ApiError } from '../api.js';
 
 /**
- * Two-step application form: details → review → submit.
- * A per-form idempotency key makes retried submissions safe, and the submit
+ * Two-step application form: details → review → submit → confirmation.
+ * Draft values persist in sessionStorage so a reload never loses work; a
+ * per-form idempotency key makes retried submissions safe, and the submit
  * button is disabled while a request is in flight.
  */
+const DRAFT_KEY = 'entryout-apply-draft';
+
 export function applyPage({ query }) {
   setTitle('Apply for an exeat');
   const profile = session.profile || {};
@@ -27,14 +30,53 @@ export function applyPage({ query }) {
       departTime: '',
       returnDate: '',
       returnTime: '',
-      guardianName: profile?.guardian_name || '',
-      guardianPhone: profile?.guardian_phone || '',
+      guardianName: profile?.guardian_name || profile?.guardianName || '',
+      guardianPhone: profile?.guardian_phone || profile?.guardianPhone || '',
       urgent: false,
     },
     step: query.type ? 'form' : 'type',
     submitting: false,
     idempotencyKey: `req-${crypto.randomUUID()}`,
   };
+
+  restoreDraft();
+
+  function persist() {
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+        type: state.type,
+        values: state.values,
+        step: state.step,
+        idempotencyKey: state.idempotencyKey,
+      }));
+    } catch {
+      // private mode / storage disabled — the form still works in-memory
+    }
+  }
+
+  function clearDraft() {
+    try {
+      sessionStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
+  function restoreDraft() {
+    try {
+      const raw = sessionStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft && typeof draft === 'object') {
+        if (['internal', 'external'].includes(draft.type)) state.type = draft.type;
+        if (draft.values && typeof draft.values === 'object') Object.assign(state.values, draft.values);
+        if (['type', 'form', 'review'].includes(draft.step)) state.step = draft.step;
+        if (typeof draft.idempotencyKey === 'string') state.idempotencyKey = draft.idempotencyKey;
+      }
+    } catch {
+      // corrupt draft — start fresh
+    }
+  }
 
   const root = h('div', { class: 'reveal' });
 
@@ -44,8 +86,11 @@ export function applyPage({ query }) {
         h('div', null,
           h('h1', null, 'Apply for an exeat'),
           h('p', { class: 'page-sub' }, 'Your name, class and house come from your school account.'))),
-      stepper(),
-      state.step === 'type' ? typeChooser() : state.step === 'form' ? formStep() : reviewStep());
+      state.step === 'done' ? null : stepper(),
+      state.step === 'type' ? typeChooser()
+        : state.step === 'form' ? formStep()
+          : state.step === 'review' ? reviewStep()
+            : doneStep());
   }
 
   function stepper() {
@@ -85,6 +130,7 @@ export function applyPage({ query }) {
       onclick: () => {
         state.type = type;
         state.step = 'form';
+        persist();
         render();
         window.scrollTo({ top: 0, behavior: 'smooth' });
       },
@@ -108,7 +154,7 @@ export function applyPage({ query }) {
   function text(id, props, opts) {
     const control = h('input', { class: 'input', id, name: id, ...props });
     control.value = state.values[id] ?? '';
-    control.addEventListener('input', () => { state.values[id] = control.value; });
+    control.addEventListener('input', () => { state.values[id] = control.value; persist(); });
     return bind(id, control, opts);
   }
 
@@ -129,6 +175,7 @@ export function applyPage({ query }) {
         }
         urgentRow.hidden = !(CATEGORIES.find((c) => c.value === control.value)?.urgentAllowed);
       }
+      persist();
     });
     return bind(id, control, opts);
   }
@@ -138,7 +185,7 @@ export function applyPage({ query }) {
       h('input', {
         type: 'checkbox',
         id: 'urgent',
-        onchange: (event) => { state.values.urgent = event.target.checked; },
+        onchange: (event) => { state.values.urgent = event.target.checked; persist(); },
       }),
       h('span', { class: 'checkbox-text' },
         h('strong', null, 'This is urgent (medical)'),
@@ -187,6 +234,7 @@ export function applyPage({ query }) {
         }
         summarySlot.replaceChildren();
         state.step = 'review';
+        persist();
         render();
         window.scrollTo({ top: 0, behavior: 'smooth' });
       },
@@ -218,7 +266,7 @@ export function applyPage({ query }) {
         h('button', {
           class: 'btn btn-secondary',
           type: 'button',
-          onclick: () => { state.step = 'type'; render(); },
+          onclick: () => { state.step = 'type'; persist(); render(); },
         }, 'Change type')));
 
     urgentRow.hidden = !(CATEGORIES.find((c) => c.value === state.values.category)?.urgentAllowed);
@@ -261,14 +309,21 @@ export function applyPage({ query }) {
           const data = await apiPost('/api/requests', payload, {
             headers: { 'idempotency-key': state.idempotencyKey },
           });
+          clearDraft();
+          state.lastRequestId = data.request.id;
+          state.lastReference = data.request.reference;
+          state.lastStatus = data.request.statusLabel;
+          state.step = 'done';
           toast(`${data.request.reference} submitted for approval.`, { type: 'success', title: 'Request sent' });
-          navigate(`#/app/requests/${data.request.id}`);
+          render();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) {
           if (err instanceof ApiError && err.status === 400 && err.errors) {
             // Server-side validation changed (e.g. time passed) — send the user back.
             Object.assign(state.values, pick(err.errors));
             toast('Some details need updating. Please review the form again.', { type: 'error' });
             state.step = 'form';
+            persist();
             render();
             return;
           }
@@ -290,7 +345,7 @@ export function applyPage({ query }) {
         h('button', {
           class: 'btn btn-secondary',
           type: 'button',
-          onclick: () => { state.step = 'form'; render(); },
+          onclick: () => { state.step = 'form'; persist(); render(); },
         }, 'Edit details')));
 
     return h('div', { style: { 'max-width': '46rem' } },
@@ -301,6 +356,66 @@ export function applyPage({ query }) {
       h('div', { class: 'card card-pad' },
         h('h2', { style: { 'margin-bottom': 'var(--space-5)' } }, 'Review your request'),
         form));
+  }
+
+  /* ---------------------------- confirmation ---------------------------- */
+
+  function doneStep() {
+    return h('div', { style: { 'max-width': '40rem', margin: '0 auto' } },
+      h('div', { class: 'card card-pad', style: { textAlign: 'center' } },
+        h('div', {
+          style: {
+            width: '3.25rem', height: '3.25rem', margin: '0 auto var(--space-4)',
+            borderRadius: '50%', background: 'var(--accent-soft)', color: 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          },
+          'aria-hidden': 'true',
+        }, '✓'),
+        h('h2', { style: { 'margin-bottom': 'var(--space-2)' } }, 'Request submitted'),
+        h('p', { style: { color: 'var(--text-muted)', 'margin-bottom': 'var(--space-5)' } },
+          'Your housemaster has been notified. You can track every step from your dashboard.'),
+        h('div', {
+          style: {
+            display: 'inline-block', padding: 'var(--space-4) var(--space-6)', marginBottom: 'var(--space-5)',
+            border: '1.5px dashed var(--accent)', borderRadius: 'var(--radius)',
+            background: 'var(--accent-soft)',
+          },
+        },
+          h('div', {
+            style: {
+              'font-size': 'var(--text-xs)', 'text-transform': 'uppercase', 'letter-spacing': '0.08em',
+              color: 'var(--text-muted)', 'font-weight': 700, 'margin-bottom': '0.35rem',
+            },
+          }, 'Your reference'),
+          h('div', {
+            style: {
+              'font-family': 'var(--font-mono)', 'font-size': '1.4rem', 'font-weight': 700,
+              'letter-spacing': '0.1em',
+            },
+          }, state.lastReference || '—')),
+        h('p', { style: { color: 'var(--text-muted)', 'font-size': 'var(--text-sm)', 'margin-bottom': 'var(--space-5)' } },
+          `Status: ${state.lastStatus || 'Pending housemaster approval'}. Quote this reference if you speak to your housemaster.`),
+        h('div', { class: 'btn-row', style: { justifyContent: 'center' } },
+          h('button', {
+            class: 'btn',
+            type: 'button',
+            onclick: () => navigate(`#/app/requests/${state.lastRequestId}`),
+          }, 'Track this request'),
+          h('button', {
+            class: 'btn btn-secondary',
+            type: 'button',
+            onclick: () => {
+              state.type = null;
+              state.step = 'type';
+              state.idempotencyKey = `req-${crypto.randomUUID()}`;
+              Object.assign(state.values, {
+                category: '', reason: '', destination: '',
+                departDate: '', departTime: '', returnDate: '', returnTime: '', urgent: false,
+              });
+              render();
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            },
+          }, 'Apply for another'))));
   }
 
   render();

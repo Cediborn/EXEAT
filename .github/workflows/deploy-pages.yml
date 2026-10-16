@@ -28,17 +28,12 @@ jobs:
           mkdir -p dist
           cp index.html dist/
           cp -r src public dist/
-          # Runtime API base: filled from the API_BASE_URL repository variable.
-          # TEMPORARY DEMO WIRING (remove for a real deployment): the hosted
-          # frontend points at the developer's local API so the development
-          # dashboard bypass can be demonstrated from GitHub Pages. Visitors on
-          # other machines simply see the "backend not connected" banner.
-          # devBypassAuth is true here only because the configured API is the
-          # local development server; the server itself hard-disables the
-          # bypass whenever NODE_ENV=production. Set this back to false when
-          # API_BASE_URL is pointed at a real hosted API.
-          printf "window.ENTRYOUT_CONFIG = { apiBase: '%s', appName: 'Entryout', devBypassAuth: true };\n" \
-            "${{ vars.API_BASE_URL }}" > dist/config.js
+          # Hosted demonstration build: demoMode routes every API call to the
+          # in-browser demo adapter (src/js/demo/api.js) backed by
+          # localStorage — no backend, no external auth. Visitors get the
+          # full student/staff/gate/admin flows with per-browser sample data.
+          printf "window.ENTRYOUT_CONFIG = { apiBase: '', appName: 'Entryout', devBypassAuth: false, demoMode: true };\n" \
+            > dist/config.js
 
       - uses: actions/upload-pages-artifact@v3
         with:

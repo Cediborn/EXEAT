@@ -64,15 +64,36 @@ docs/           research, architecture, security, deployment, testing
 | `npm test` | full test suite (`node --test`) |
 | `node scripts/browser-e2e.mjs` | end-to-end UI check in headless Edge (API must be running) |
 | `node scripts/dev-bypass-e2e.mjs` | portal-button bypass check (set `EXPECT_BYPASS=off` to test the fallback) |
+| `node scripts/demo-e2e.mjs` | full demo-mode check in headless Edge (no API needed; static server included) |
 
 ## Configuration
 
 Copy `.env.example` → `.env`. Everything (ports, CORS origins, cookie security, session TTL,
 enrolment code, school policy defaults, notification webhook) is env-driven — see
-[docs/deployment.md](docs/deployment.md) for the production checklist, including the
-`API_BASE_URL` Pages variable that connects the hosted frontend to the API.
+[docs/deployment.md](docs/deployment.md) for the production checklist.
 
-## Development bypass (temporary)
+## Demo mode (hosted)
+
+The hosted builds (Vercel `https://exeat-inky.vercel.app/`, GitHub Pages) ship with
+`demoMode: true` in `config.js`. Every API call is then answered **in-browser** by the demo
+adapter (`src/js/demo/api.js`) against versioned localStorage data
+(`src/js/demo/store.js`) — no backend, no network, no cookies, nothing leaves the browser.
+
+- **Student portal** button signs straight into the seeded student's dashboard.
+- **Staff sign-in** button opens a role picker (housemaster / senior / gate / admin), then
+  the matching dashboard. Password sign-in also works: any seeded account with
+  `Entryout!2026`.
+- Demo data starts empty of requests (fresh visitor), with seeded announcements and school
+  settings. Decisions, gate scans, announcements CRUD — the full workflow — run against the
+  adapter with the same validation and role rules as the backend.
+- Bumping `VERSION` in `src/js/demo/store.js` wipes and re-seeds visitor data on next load.
+
+The hosted configs are written at build time: Vercel by `scripts/vercel-build.mjs`
+(`vercel.json` `buildCommand`), Pages by the printf in `deploy-pages.yml`. The root
+`config.js` keeps `demoMode: false` so local development always runs against the real
+backend on `http://localhost:8787`.
+
+### Development bypass (local only)
 
 For local demos, the homepage **Student portal** and **Staff sign-in** buttons open the real
 dashboards directly via `POST /api/auth/dev-session` — no password needed. The identity is
@@ -85,9 +106,9 @@ Safety layers (all must hold for the bypass to work):
 1. **Server** — `config.devBypassAuth` is hard-off when `NODE_ENV=production`; otherwise
    `DEV_BYPASS_AUTH=false|0|off|no` disables it (then `/api/auth/dev-session` is not even
    registered → plain 404).
-2. **Frontend** — `window.ENTRYOUT_CONFIG.devBypassAuth` must be strictly `true` (the Pages
-   workflow writes `false` into the generated config); otherwise the buttons behave exactly
-   as before and navigate to `#/signin`.
+2. **Frontend** — `window.ENTRYOUT_CONFIG.devBypassAuth` must be strictly `true` (hosted
+   builds write `false`); otherwise the buttons behave exactly as before and navigate to
+   `#/signin`.
 3. **Fallback** — any server error/404 on the dev-session call falls back to the original
    sign-in pages.
 
@@ -95,30 +116,10 @@ To restore the classic flow locally: set `DEV_BYPASS_AUTH=false` in `.env` and r
 API — the buttons then always show the sign-in pages. Normal password login, logout,
 registration and every authorization rule are untouched in all modes.
 
-### Temporary live-demo wiring (Pages → local API)
-
-So the bypass can also be demonstrated from the hosted site, the Pages build currently
-points at the developer's own API: `API_BASE_URL=http://localhost:8787` (repo variable),
-`devBypassAuth: true` in `deploy-pages.yml`, and the local `.env` allows the Pages origin
-with cross-site cookies (`ALLOWED_ORIGINS=…,https://cediborn.github.io`, `COOKIE_SECURE=true`
-→ `SameSite=None; Secure`). Only the developer's own machine can reach that API; everyone
-else just sees the honest "backend not connected" banner.
-
-- Browsers show a one-time **local-network permission prompt** (Chrome/Edge) the first
-  time the page talks to localhost — allow it.
-- To undo: delete the `API_BASE_URL` repo variable, set `devBypassAuth: false` in the
-  workflow, revert the `.env` lines, restart the API. The site returns to
-  static-with-banner mode immediately.
-
-The same demo wiring applies to a **Vercel** deployment of this repo: `vercel.json`
-declares the project as a plain static site (no build; SPA fallback to `index.html`) and
-the root `config.js` ships `apiBase: http://localhost:8787` + `devBypassAuth: true`, so the
-portal buttons there also open the dashboards on the developer's machine (allow the
-one-time local-network prompt; add the Vercel origin to `ALLOWED_ORIGINS` in `.env`).
-
 ## Status
 
 - ✅ 65/65 automated tests passing (auth, workflow, security, validation, static, dev bypass incl. kill-switch + production hard-off)
 - ✅ 28/28 browser end-to-end checks passing (headless Edge) + 32/32 bypass-on, 19/19 bypass-off
-- ✅ Frontend deploys to GitHub Pages via GitHub Actions
+- ✅ 43/43 demo-mode checks passing (`scripts/demo-e2e.mjs`, headless Edge, no backend)
+- ✅ Hosted demo mode on Vercel + GitHub Pages (self-contained, no backend required)
 - ⏳ API hosting + outbound SMS/email webhook still to be provisioned

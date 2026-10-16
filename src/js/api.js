@@ -1,4 +1,5 @@
-import { API_BASE } from './config.js';
+import { API_BASE, DEMO_MODE } from './config.js';
+import { demoHandle } from './demo/api.js';
 
 /**
  * Thin API client.
@@ -38,6 +39,20 @@ export function setCsrfToken(token) {
 }
 
 export async function api(path, { method = 'GET', body, headers = {}, query } = {}) {
+  if (DEMO_MODE) {
+    // Hosted demo: every endpoint is answered in-browser by the demo adapter
+    // (localStorage-backed), so the full UI works without a backend.
+    try {
+      const data = await demoHandle(method, path, { body, query, headers });
+      apiState.reachable = true;
+      apiState.lastError = null;
+      return data;
+    } catch (err) {
+      apiState.reachable = true;
+      throw err instanceof ApiError ? err : new ApiError(err.status || 400, err.message, err.errors);
+    }
+  }
+
   let url = `${API_BASE}${path}`;
   if (query) {
     const params = new URLSearchParams();

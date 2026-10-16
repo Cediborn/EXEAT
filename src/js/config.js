@@ -14,3 +14,10 @@ export const API_BASE = String(runtime.apiBase || '').replace(/\/$/, '');
  * even if it were flipped the API would refuse the dev session anyway.
  */
 export const DEV_BYPASS_AUTH = runtime.devBypassAuth === true || runtime.devBypassAuth === 'true';
+
+/**
+ * True on hosted demonstration builds (Vercel, GitHub Pages) where no backend
+ * is reachable. All API calls are served in-browser by the demo adapter
+ * (src/js/demo/api.js) from localStorage data — no network, no cookies.
+ */
+export const DEMO_MODE = runtime.demoMode === true || runtime.demoMode === 'true';
