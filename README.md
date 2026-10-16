@@ -110,6 +110,12 @@ else just sees the honest "backend not connected" banner.
   workflow, revert the `.env` lines, restart the API. The site returns to
   static-with-banner mode immediately.
 
+The same demo wiring applies to a **Vercel** deployment of this repo: `vercel.json`
+declares the project as a plain static site (no build; SPA fallback to `index.html`) and
+the root `config.js` ships `apiBase: http://localhost:8787` + `devBypassAuth: true`, so the
+portal buttons there also open the dashboards on the developer's machine (allow the
+one-time local-network prompt; add the Vercel origin to `ALLOWED_ORIGINS` in `.env`).
+
 ## Status
 
 - ✅ 65/65 automated tests passing (auth, workflow, security, validation, static, dev bypass incl. kill-switch + production hard-off)
