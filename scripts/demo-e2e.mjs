@@ -16,8 +16,10 @@
  * senior visibility of the housemaster's decision, authorised vs original
  * dates, approved ≠ completed, queue search/filters, and a page-error check.
  * Plus: contextual duration review (no universal 72-hour cap — long requests
- * get a warning and can be approved as submitted) and the charcoal dark
- * theme (default dark, labelled toggle, persistence across reloads).
+ * get a warning and can be approved as submitted), senior rejection
+ * overriding the housemaster's earlier approval (history preserved, student
+ * sees the reason), and the charcoal dark theme (default dark, labelled
+ * toggle, persistence across reloads).
  *
  * Usage:  node scripts/demo-e2e.mjs
  *         DEMO_E2E_BASE=https://exeat-inky.vercel.app node scripts/demo-e2e.mjs
@@ -978,6 +980,90 @@ async function main() {
       durationReview.ok && durationReview.approved && durationReview.passIssued === true,
       JSON.stringify(durationReview));
     await session.screenshot('13-duration-review');
+
+    /* ---------- 7d. Senior rejection overrides the HM approval (demo) ---------- */
+    await signOut(session);
+    await session.evaluate(async () => {
+      const b = [...document.querySelectorAll('.hero-actions button')].find((x) => /Student portal/.test(x.textContent));
+      if (b) { b.click(); await new Promise((r) => setTimeout(r, 1500)); }
+    });
+    const ext2 = await submitRequest(session, {
+      type: 'external',
+      reason: 'Guardian family meeting in Kumasi this half-term.',
+      destination: 'Kumasi — family house',
+      departInHours: 30,
+      returnInHours: 80,
+    });
+    check('second external request submitted for the senior-rejection test',
+      ext2.ok && ext2.id, JSON.stringify(ext2));
+
+    await signOut(session);
+    const hm4 = await staffSignIn(session, 'housemaster');
+    check('housemaster signs in (rejection scenario)', hm4.ok && hm4.hash === '#/staff', JSON.stringify(hm4));
+    await session.waitFor("document.querySelectorAll('.table tbody tr').length >= 1", 15000).catch(() => {});
+    const hm4Approved = await session.evaluate(async (id) => {
+      location.hash = `#/staff/requests/${id}`;
+      await new Promise((r) => setTimeout(r, 1500));
+      const approve = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Approve');
+      if (!approve) return { ok: false, reason: 'no approve button' };
+      approve.click();
+      await new Promise((r) => setTimeout(r, 500));
+      const confirm = [...document.querySelectorAll('.dialog button')].find((b) => /Yes, approve/.test(b.textContent));
+      if (!confirm) return { ok: false, reason: 'no approve confirm' };
+      confirm.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      return { ok: true, awaiting: document.body.textContent.includes('Pending senior housemaster approval') };
+    }, ext2.id);
+    check('housemaster approval forwards to senior (rejection scenario)',
+      hm4Approved.ok && hm4Approved.awaiting === true, JSON.stringify(hm4Approved));
+
+    await signOut(session);
+    const snrRej = await staffSignIn(session, 'senior');
+    check('senior signs in for the rejection test', snrRej.ok && snrRej.hash === '#/staff', JSON.stringify(snrRej));
+    await session.waitFor("document.querySelectorAll('.table tbody tr').length >= 1", 15000).catch(() => {});
+    const seniorReject = await session.evaluate(async (id) => {
+      location.hash = `#/staff/requests/${id}`;
+      await new Promise((r) => setTimeout(r, 1500));
+      const histShowsApproval = document.body.textContent.includes('Approved by');
+      const comment = document.querySelector('#decision-comment');
+      if (!comment) return { ok: false, reason: 'no decision panel', histShowsApproval };
+      comment.value = 'The guardian travel plans cannot be confirmed.';
+      const reject = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Reject');
+      if (!reject) return { ok: false, reason: 'no reject button', histShowsApproval };
+      reject.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const confirm = [...document.querySelectorAll('.dialog button')].find((b) => /Yes, reject/.test(b.textContent));
+      if (!confirm) return { ok: false, reason: 'no reject confirm', histShowsApproval };
+      confirm.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      const rejected = document.body.textContent.includes('Rejected');
+      location.hash = '#/staff';
+      await new Promise((r) => setTimeout(r, 1500));
+      const awaiting = [...document.querySelectorAll('.summary-chip')]
+        .find((c) => /Awaiting my review/.test(c.textContent));
+      awaiting?.click();
+      await new Promise((r) => setTimeout(r, 800));
+      const rows = [...document.querySelectorAll('.table tbody tr')];
+      const stillQueued = rows.some((tr) => tr.textContent.includes('Kumasi'));
+      return { ok: true, histShowsApproval, rejected, stillQueued };
+    }, ext2.id);
+    check('senior sees the housemaster approval in history before deciding',
+      seniorReject.histShowsApproval === true, JSON.stringify(seniorReject));
+    check('senior rejection overrides the approval (final status rejected)',
+      seniorReject.ok && seniorReject.rejected === true, JSON.stringify(seniorReject));
+    check('rejected request leaves the senior queue', seniorReject.stillQueued === false);
+
+    await signOut(session);
+    await session.evaluate(async () => {
+      const b = [...document.querySelectorAll('.hero-actions button')].find((x) => /Student portal/.test(x.textContent));
+      if (b) { b.click(); await new Promise((r) => setTimeout(r, 1500)); }
+    });
+    await session.evaluate((id) => { location.hash = `#/app/requests/${id}`; }, ext2.id);
+    await sleep(1500);
+    const seniorReasonView = await session.evaluate(() =>
+      document.body.textContent.includes('cannot be confirmed')
+      && document.body.textContent.includes('Rejected'));
+    check('student sees the senior rejection reason', seniorReasonView === true);
 
     /* ---------- 8. Admin: announcements CRUD ---------- */
     await signOut(session);

@@ -350,6 +350,60 @@ test('changed proposed dates require a reason; long schedules are never auto-blo
   assert.ok(hours > 72, 'the stored proposal itself exceeds 72 hours');
 });
 
+test('senior housemaster rejection overrides the housemaster approval', async () => {
+  const student = await studentClient();
+  const hm = createClient(server.base);
+  await hm.login('TEST-HM1', fixtures.password);
+  const senior = createClient(server.base);
+  await senior.login('TEST-SENIOR', fixtures.password);
+
+  const request = await submit(student, {
+    type: 'external',
+    category: 'family',
+    reason: 'Attending an extended family naming ceremony with my guardian.',
+    destination: 'Takoradi — family home',
+    ...departParts(when(40).toISOString()),
+    ...returnParts(when(90).toISOString()),
+    guardianName: 'Guardian Person',
+    guardianPhone: '0240000000',
+  });
+
+  const hmOk = await hm.post(`/api/staff/requests/${request.id}/decision`,
+    { decision: 'approved', comment: 'Checked with the guardian.' });
+  assert.equal(hmOk.status, 200, hmOk.text);
+  assert.equal(hmOk.json.request.status, 'pending_senior');
+
+  const noReason = await senior.post(`/api/staff/requests/${request.id}/decision`,
+    { decision: 'rejected', comment: '' });
+  assert.equal(noReason.status, 400, 'senior rejection also requires a reason');
+
+  const seniorNo = await senior.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'rejected',
+    comment: 'Guardian travel plans cannot be confirmed this week.',
+  });
+  assert.equal(seniorNo.status, 200, seniorNo.text);
+  assert.equal(seniorNo.json.request.status, 'rejected', 'final outcome is rejected, not approved');
+  assert.equal(seniorNo.json.pass, null, 'no pass is ever issued');
+
+  // Both decisions stay in the history, in order — the HM approval is
+  // preserved but does not override the senior's final rejection.
+  const staffDetail = await hm.get(`/api/staff/requests/${request.id}`);
+  assert.equal(staffDetail.status, 200, staffDetail.text);
+  const decisions = staffDetail.json.approvals.map((a) => `${a.stage}:${a.decision}`);
+  assert.deepEqual(decisions, ['housemaster:approved', 'senior:rejected']);
+
+  // The request leaves the active approval queues.
+  const seniorQueue = await senior.get('/api/staff/requests?status=pending_senior');
+  assert.equal(seniorQueue.status, 200);
+  assert.ok(!seniorQueue.json.requests.some((r) => r.id === request.id), 'leaves the senior queue');
+
+  // The student sees the final status and the senior's reason.
+  const mine = await student.get(`/api/requests/${request.id}`);
+  assert.equal(mine.json.request.status, 'rejected');
+  assert.ok(mine.json.approvals.some((a) => a.stage === 'senior' && a.decision === 'rejected'
+    && a.comment.includes('Guardian travel plans')), 'student sees the senior rejection reason');
+});
+
 test('rejected requests show the reason to the student and cannot proceed', async () => {
   const student = await studentClient();
   const hm = createClient(server.base);
