@@ -48,6 +48,9 @@ requestsRouter.get('/:id', asyncHandler(async (req, res) => {
   const db = getDb();
   const profile = db.prepare('SELECT index_number, class_year, house FROM students WHERE user_id = ?').get(req.user.id);
   const pass = db.prepare('SELECT * FROM passes WHERE request_id = ?').get(row.id);
+  const approvals = db.prepare(`SELECT a.*, u.full_name AS reviewer_name
+    FROM approval_records a JOIN users u ON u.id = a.reviewer_id
+    WHERE a.request_id = ? ORDER BY a.created_at ASC`).all(row.id);
   res.json({
     request: serializeRequest(row, { includeGuardian: true }),
     student: {
@@ -56,6 +59,16 @@ requestsRouter.get('/:id', asyncHandler(async (req, res) => {
       classYear: profile?.class_year,
       house: profile?.house,
     },
+    approvals: approvals.map((a) => ({
+      stage: a.stage,
+      decision: a.decision,
+      comment: a.comment,
+      reviewerName: a.reviewer_name,
+      at: a.created_at,
+      proposedDepartAt: a.proposed_depart_at || null,
+      proposedReturnAt: a.proposed_return_at || null,
+      dateReason: a.date_reason || null,
+    })),
     timeline: timeline(row.id),
     pass: pass ? {
       code: pass.code,

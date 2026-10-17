@@ -1,4 +1,4 @@
-import { getDb, newId, nowIso } from '../db.js';
+import { getDb, newId, nowIso, getNumberSetting } from '../db.js';
 import { badRequest, conflict, forbidden, notFound } from '../middleware/errors.js';
 import { validateApplication, HOUSES } from './validate.js';
 import { issuePass, revokePass } from './passes.js';
@@ -152,7 +152,7 @@ export function cancelRequest(user, requestId, reason) {
  * Record an approval decision. The server independently verifies that the
  * reviewer is authorised for the request's current stage and house.
  */
-export function decide(reviewer, requestId, decision, comment) {
+export function decide(reviewer, requestId, decision, comment, dateFields = {}) {
   const db = getDb();
   const request = db.prepare('SELECT * FROM exeat_requests WHERE id = ?').get(requestId);
   if (!request) throw notFound('Request not found.');
@@ -183,9 +183,69 @@ export function decide(reviewer, requestId, decision, comment) {
     throw forbidden('Your role cannot make approval decisions.');
   }
 
+  /*
+   * Proposed dates (Phase 4): staff may shorten the requested schedule when
+   * approving. The student's original depart_at/return_at are never touched;
+   * proposals are validated, stored on the approval record, mirrored onto the
+   * request as proposed_*, and frozen into approved_* on final approval.
+   */
+  let proposedDepartAt = null;
+  let proposedReturnAt = null;
+  let dateReason = null;
+  if (decision === 'approved'
+    && (dateFields.proposedDepartAt || dateFields.proposedReturnAt)) {
+    const rawDepart = String(dateFields.proposedDepartAt || '').trim();
+    const rawReturn = String(dateFields.proposedReturnAt || '').trim();
+    if (!rawDepart || !rawReturn) {
+      throw badRequest('Provide both a proposed departure and a proposed return time.',
+        { proposedReturnAt: 'Both proposed times are required.' });
+    }
+    const departDate = new Date(rawDepart);
+    const returnDate = new Date(rawReturn);
+    if (Number.isNaN(departDate.getTime()) || Number.isNaN(returnDate.getTime())) {
+      throw badRequest('One of the proposed dates is not a valid date.',
+        { proposedReturnAt: 'Enter a valid date.' });
+    }
+    const currentDepart = request.approved_depart_at || request.proposed_depart_at || request.depart_at;
+    const currentReturn = request.approved_return_at || request.proposed_return_at || request.return_at;
+    // Compare at minute granularity: the UI round-trips through date+time
+    // inputs, which drop seconds, and that must not count as a change.
+    const minute = (iso) => Math.floor(new Date(iso).getTime() / 60000);
+    const changed = minute(departDate) !== minute(new Date(currentDepart))
+      || minute(returnDate) !== minute(new Date(currentReturn));
+    if (changed) {
+      dateReason = String(dateFields.dateReason || '').trim().slice(0, 500);
+      if (dateReason.length < 5) {
+        throw badRequest('Explain why you are changing the proposed dates.',
+          { dateReason: 'A reason is required when dates change.' });
+      }
+      if (returnDate.getTime() <= departDate.getTime()) {
+        throw badRequest('The proposed return time must be after the proposed departure time.',
+          { proposedReturnAt: 'Return must be after departure.' });
+      }
+      const hours = (returnDate.getTime() - departDate.getTime()) / 3600000;
+      const maxDuration = getNumberSetting('max_duration_hours', 72);
+      if (hours > maxDuration) {
+        throw badRequest(
+          `The proposed schedule may not exceed ${maxDuration} hours — the school's configured limit.`,
+          { proposedReturnAt: `Shorten the schedule to ${maxDuration} hours or less.` });
+      }
+      proposedDepartAt = departDate.toISOString();
+      proposedReturnAt = returnDate.toISOString();
+    }
+  }
+
   const now = nowIso();
-  db.prepare('INSERT INTO approval_records (id, request_id, reviewer_id, stage, decision, comment, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(newId(), request.id, reviewer.id, stage, decision, cleanComment || null, now);
+  const effectiveDepart = proposedDepartAt || request.proposed_depart_at || request.depart_at;
+  const effectiveReturn = proposedReturnAt || request.proposed_return_at || request.return_at;
+  db.prepare(`INSERT INTO approval_records
+    (id, request_id, reviewer_id, stage, decision, comment, created_at,
+     proposed_depart_at, proposed_return_at, date_reason)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(newId(), request.id, reviewer.id, stage, decision, cleanComment || null, now,
+      decision === 'approved' ? effectiveDepart : null,
+      decision === 'approved' ? effectiveReturn : null,
+      dateReason);
 
   const student = db.prepare('SELECT id, email, full_name FROM users WHERE id = ?').get(request.student_id);
   let status = request.status;
@@ -194,9 +254,14 @@ export function decide(reviewer, requestId, decision, comment) {
   if (decision === 'approved') {
     if (stage === 'housemaster' && request.requires_senior) {
       status = 'pending_senior';
+      db.prepare('UPDATE exeat_requests SET proposed_depart_at = ?, proposed_return_at = ? WHERE id = ?')
+        .run(effectiveDepart, effectiveReturn, request.id);
     } else {
       status = 'approved';
-      db.prepare("UPDATE exeat_requests SET decided_at = ? WHERE id = ?").run(now, request.id);
+      db.prepare(`UPDATE exeat_requests SET decided_at = ?,
+        proposed_depart_at = ?, proposed_return_at = ?,
+        approved_depart_at = ?, approved_return_at = ? WHERE id = ?`)
+        .run(now, effectiveDepart, effectiveReturn, effectiveDepart, effectiveReturn, request.id);
       pass = issuePass(request.id);
     }
   } else if (decision === 'rejected') {
@@ -246,6 +311,10 @@ export function serializeRequest(row, extras = {}) {
     guardianPhone: extras.includeGuardian ? row.guardian_phone : undefined,
     departAt: row.depart_at,
     returnAt: row.return_at,
+    proposedDepartAt: row.proposed_depart_at || null,
+    proposedReturnAt: row.proposed_return_at || null,
+    approvedDepartAt: row.approved_depart_at || null,
+    approvedReturnAt: row.approved_return_at || null,
     urgent: !!row.urgent,
     requiresSenior: !!row.requires_senior,
     status: row.status,

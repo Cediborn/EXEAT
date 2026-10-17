@@ -6,16 +6,19 @@ import { pageHead, emptyState, loadingBlock, alertBox } from '../components/ui.j
 import { staffRow } from '../components/requestCard.js';
 import { HOUSES } from '../validation.js';
 
-const STATUS_FILTERS = [
-  ['', 'All'],
-  ['pending', 'Awaiting housemaster'],
-  ['pending_senior', 'Awaiting senior'],
-  ['returned', 'Returned'],
-  ['approved', 'Approved'],
-  ['completed', 'Completed'],
-  ['rejected', 'Rejected'],
-  ['cancelled', 'Cancelled'],
-];
+/**
+ * Role-aware status chips. Each role's own pending stage is labelled
+ * "Awaiting my review" so it is obvious which requests need action.
+ */
+function statusFiltersFor(role) {
+  const chips = [['', 'All']];
+  if (role === 'housemaster') chips.push(['pending', 'Awaiting my review'], ['pending_senior', 'Awaiting senior']);
+  else if (role === 'senior') chips.push(['pending_senior', 'Awaiting my review']);
+  else chips.push(['pending', 'Awaiting housemaster'], ['pending_senior', 'Awaiting senior']);
+  chips.push(['returned', 'Returned'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['completed', 'Completed']);
+  if (role === 'admin') chips.push(['cancelled', 'Cancelled']);
+  return chips;
+}
 
 export function staffDashboardPage() {
   setTitle('Review queue');
@@ -92,16 +95,15 @@ export function staffDashboardPage() {
   }
 
   function renderSummary(summary) {
-    const chips = STATUS_FILTERS.filter(([value]) => value !== 'rejected' && value !== 'cancelled')
-      .map(([value, label]) => {
-        const count = value ? (summary[value] || 0) : Object.values(summary).reduce((a, b) => a + b, 0);
-        return h('button', {
-          class: 'summary-chip',
-          type: 'button',
-          'aria-pressed': state.status === value ? 'true' : 'false',
-          onclick: () => { state.status = value; refresh(); },
-        }, label, h('strong', null, String(count)));
-      });
+    const chips = statusFiltersFor(session.user.role).map(([value, label]) => {
+      const count = value ? (summary[value] || 0) : Object.values(summary).reduce((a, b) => a + b, 0);
+      return h('button', {
+        class: 'summary-chip',
+        type: 'button',
+        'aria-pressed': state.status === value ? 'true' : 'false',
+        onclick: () => { state.status = value; refresh(); },
+      }, label, h('strong', null, String(count)));
+    });
     summarySlot.replaceChildren(...chips);
   }
 

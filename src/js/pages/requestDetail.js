@@ -31,7 +31,13 @@ export async function requestDetailPage({ params }) {
   return root;
 
   function render(payload) {
-    const { request, student, pass, timeline: events } = payload;
+    const { request, student, pass, timeline: events, approvals } = payload;
+    const approvalList = approvals || [];
+    const latestDecision = [...approvalList].reverse().find((a) => ['rejected', 'returned', 'approved'].includes(a.decision));
+    const rejectionReason = request.status === 'rejected' && latestDecision?.decision === 'rejected'
+      ? latestDecision.comment : null;
+    const correctionReason = request.status === 'returned' && latestDecision?.decision === 'returned'
+      ? latestDecision.comment : null;
     const canCancel = ['pending', 'pending_senior', 'approved', 'returned'].includes(request.status);
     const needsCorrection = request.status === 'returned';
 
@@ -47,8 +53,7 @@ export async function requestDetailPage({ params }) {
             statusBadge(request.status, request.statusLabel)))),
       h('div', { class: 'split split-wide' },
         h('div', { class: 'stack-lg' },
-          needsCorrection ? correctionPanel(request) : null,
-          request.status === 'rejected' && request.cancelReason ? null : null,
+          rejectionReason ? alertBox('danger', 'Rejected — reason', rejectionReason) : null,
           h('div', { class: 'card' },
             h('div', { class: 'card-header' }, h('h2', null, 'Request details')),
             h('div', { class: 'card-body' },
@@ -57,13 +62,14 @@ export async function requestDetailPage({ params }) {
                 detail('Purpose', request.reason),
                 detail('Destination', request.destination),
                 detail('Type', request.type === 'external' ? 'External exeat' : 'Internal exeat'),
-                detail('Departs', formatDateTime(request.departAt)),
-                detail('Return by', formatDateTime(request.returnAt)),
-                detail('Duration', durationLabel(request.departAt, request.returnAt)),
+                detail('Submitted', request.submittedAt ? formatDateTime(request.submittedAt) : '—'),
+                detail('Urgency', request.urgent ? 'Urgent (medical)' : 'Standard'),
                 student?.indexNumber ? detail('Index number', student.indexNumber) : null,
                 student?.house ? detail('House', student.house) : null,
                 request.guardianName ? detail('Guardian', `${request.guardianName} · ${request.guardianPhone}`) : null,
                 request.cancelReason ? detail('Cancellation reason', request.cancelReason) : null))),
+          datesCard(request),
+          needsCorrection ? correctionPanel(request, correctionReason) : null,
           h('div', { class: 'card' },
             h('div', { class: 'card-header' }, h('h2', null, 'Timeline')),
             h('div', { class: 'card-body' }, timeline(events)))),
@@ -78,6 +84,41 @@ export async function requestDetailPage({ params }) {
       h('dd', null, value || '—'));
   }
 
+  /**
+   * Original requested dates, the schedule proposed while the request is in
+   * senior review, and the finally authorised schedule after approval.
+   * Staff adjustments never overwrite the original request.
+   */
+  function datesCard(request) {
+    const proposed = request.status === 'pending_senior' && (request.proposedDepartAt || request.proposedReturnAt)
+      ? h('div', { style: { 'margin-top': 'var(--space-4)' } },
+        h('h3', { style: { 'font-size': 'var(--text-md)', 'margin-bottom': 'var(--space-2)' } }, 'Proposed by your Housemaster'),
+        h('p', { style: { color: 'var(--text-muted)', 'font-size': 'var(--text-sm)', 'margin-bottom': 'var(--space-2)' } },
+          'Your Housemaster proposed these times. The Senior Housemaster must still approve before your pass is issued.'),
+        h('dl', { class: 'detail-grid' },
+          detail('Departs', formatDateTime(request.proposedDepartAt || request.departAt)),
+          detail('Return by', formatDateTime(request.proposedReturnAt || request.returnAt))))
+      : null;
+    const approved = ['approved', 'completed'].includes(request.status) && (request.approvedDepartAt || request.approvedReturnAt)
+      ? h('div', { style: { 'margin-top': 'var(--space-4)' } },
+        h('h3', { style: { 'font-size': 'var(--text-md)', 'margin-bottom': 'var(--space-2)' } }, 'Authorised schedule'),
+        h('dl', { class: 'detail-grid' },
+          detail('Departs', formatDateTime(request.approvedDepartAt || request.departAt)),
+          detail('Return by', formatDateTime(request.approvedReturnAt || request.returnAt)),
+          detail('Duration', durationLabel(request.approvedDepartAt || request.departAt, request.approvedReturnAt || request.returnAt))))
+      : null;
+    return h('div', { class: 'card' },
+      h('div', { class: 'card-header' }, h('h2', null, 'Dates')),
+      h('div', { class: 'card-body' },
+        h('h3', { style: { 'font-size': 'var(--text-md)', 'margin-bottom': 'var(--space-2)' } }, 'Your original request'),
+        h('dl', { class: 'detail-grid' },
+          detail('Departs', formatDateTime(request.departAt)),
+          detail('Return by', formatDateTime(request.returnAt)),
+          detail('Duration', durationLabel(request.departAt, request.returnAt))),
+        proposed,
+        approved));
+  }
+
   function statusPanel(request) {
     const messages = {
       pending: 'Your Housemaster or Housemistress is reviewing this request. You do not need to do anything yet.',
@@ -87,9 +128,14 @@ export async function requestDetailPage({ params }) {
       cancelled: 'You cancelled this request.',
       completed: 'This exeat is complete — your return was recorded at the gate.',
     };
+    const proposalNote = request.status === 'pending_senior' && request.proposedReturnAt
+      ? h('p', { style: { 'font-size': 'var(--text-sm)', 'margin-top': 'var(--space-2)' } },
+        `Your Housemaster proposes: departs ${formatDateTime(request.proposedDepartAt || request.departAt)} — returns ${formatDateTime(request.proposedReturnAt)}.`)
+      : null;
     return h('div', { class: 'card card-pad' },
       h('h2', { style: { 'margin-bottom': 'var(--space-2)' } }, request.statusLabel),
       h('p', { style: { color: 'var(--text-muted)' } }, messages[request.status] || ''),
+      proposalNote,
       request.status === 'pending_senior'
         ? h('div', { class: 'alert alert-info' }, h('span', null, 'External exeats always need both approvals.'))
         : null);
@@ -133,8 +179,7 @@ export async function requestDetailPage({ params }) {
       btn);
   }
 
-  function correctionPanel(request) {
-    const latest = (request.status === 'returned');
+  function correctionPanel(request, correctionReason) {
     const inputs = {
       category: h('select', { class: 'select', id: 'fix-category' },
         h('option', { value: '' }, 'Select…'),
@@ -215,8 +260,13 @@ export async function requestDetailPage({ params }) {
 
     return h('div', { class: 'card card-pad' },
       h('h2', { style: { 'margin-bottom': 'var(--space-2)' } }, 'Correction needed'),
+      correctionReason
+        ? h('div', { class: 'alert alert-info', style: { 'margin-bottom': 'var(--space-4)' } },
+          h('div', { style: { 'font-weight': 600, 'margin-bottom': 'var(--space-1)' } }, 'What needs changing'),
+          h('span', null, correctionReason))
+        : null,
       h('p', { style: { color: 'var(--text-muted)', 'margin-bottom': 'var(--space-5)' } },
-        latest ? 'Your Housemaster returned this request. Update the details and resubmit — it goes back to the housemaster stage.' : ''),
+        'Update the details below and resubmit — it goes back to your Housemaster. Everything you entered before is kept below.'),
       form);
   }
 }

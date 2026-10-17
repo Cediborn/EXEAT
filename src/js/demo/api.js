@@ -202,6 +202,10 @@ function serializeRequest(row, extras = {}) {
     guardianPhone: extras.includeGuardian ? row.guardianPhone : undefined,
     departAt: row.departAt,
     returnAt: row.returnAt,
+    proposedDepartAt: row.proposedDepartAt || null,
+    proposedReturnAt: row.proposedReturnAt || null,
+    approvedDepartAt: row.approvedDepartAt || null,
+    approvedReturnAt: row.approvedReturnAt || null,
     urgent: !!row.urgent,
     requiresSenior: !!row.requiresSenior,
     status: row.status,
@@ -292,7 +296,7 @@ function issuePass(db, requestId) {
     requestId,
     code: generatePassCode(),
     issuedAt: nowIso(),
-    expiresAt: request.returnAt,
+    expiresAt: request.approvedReturnAt || request.returnAt,
     status: 'active',
     departedAt: null,
     returnedAt: null,
@@ -341,7 +345,8 @@ function passState(db, pass, request, now = new Date()) {
     return { valid: false, state: 'expired', message: 'The authorised return time has passed.' };
   }
   const earlyMinutes = numSetting(db, 'early_departure_minutes', 30) * 60 * 1000;
-  if (now.getTime() < new Date(request.departAt).getTime() - earlyMinutes) {
+  const departAt = request.approvedDepartAt || request.departAt;
+  if (now.getTime() < new Date(departAt).getTime() - earlyMinutes) {
     return { valid: false, state: 'too_early', message: 'Departure window has not started yet.' };
   }
   return { valid: true, state: 'active', message: 'Pass is valid.' };
@@ -511,7 +516,7 @@ function cancelRequest(db, user, requestId, reason) {
   return serializeRequest(request);
 }
 
-function decide(db, reviewer, requestId, decision, comment) {
+function decide(db, reviewer, requestId, decision, comment, dateFields = {}) {
   const request = db.requests.find((r) => r.id === requestId);
   if (!request) throw demoError(404, 'Request not found.');
   if (reviewer.id === request.studentId) throw demoError(403, 'You cannot make a decision on your own request.');
@@ -536,7 +541,61 @@ function decide(db, reviewer, requestId, decision, comment) {
     throw demoError(403, 'Your role cannot make approval decisions.');
   }
 
+  /*
+   * Proposed dates: staff may shorten the requested schedule when approving.
+   * The student's original dates are never touched; proposals are validated,
+   * stored on the approval record, mirrored onto the request as proposed*,
+   * and frozen into approved* on final approval (mirrors the backend).
+   */
+  let proposedDepartAt = null;
+  let proposedReturnAt = null;
+  let dateReason = null;
+  if (decision === 'approved'
+    && (dateFields.proposedDepartAt || dateFields.proposedReturnAt)) {
+    const rawDepart = String(dateFields.proposedDepartAt || '').trim();
+    const rawReturn = String(dateFields.proposedReturnAt || '').trim();
+    if (!rawDepart || !rawReturn) {
+      throw demoError(400, 'Provide both a proposed departure and a proposed return time.',
+        { proposedReturnAt: 'Both proposed times are required.' });
+    }
+    const departDate = new Date(rawDepart);
+    const returnDate = new Date(rawReturn);
+    if (Number.isNaN(departDate.getTime()) || Number.isNaN(returnDate.getTime())) {
+      throw demoError(400, 'One of the proposed dates is not a valid date.',
+        { proposedReturnAt: 'Enter a valid date.' });
+    }
+    const currentDepart = request.approvedDepartAt || request.proposedDepartAt || request.departAt;
+    const currentReturn = request.approvedReturnAt || request.proposedReturnAt || request.returnAt;
+    // Compare at minute granularity: the UI round-trips through date+time
+    // inputs, which drop seconds, and that must not count as a change.
+    const minute = (iso) => Math.floor(new Date(iso).getTime() / 60000);
+    const changed = minute(departDate) !== minute(new Date(currentDepart))
+      || minute(returnDate) !== minute(new Date(currentReturn));
+    if (changed) {
+      dateReason = String(dateFields.dateReason || '').trim().slice(0, 500);
+      if (dateReason.length < 5) {
+        throw demoError(400, 'Explain why you are changing the proposed dates.',
+          { dateReason: 'A reason is required when dates change.' });
+      }
+      if (returnDate.getTime() <= departDate.getTime()) {
+        throw demoError(400, 'The proposed return time must be after the proposed departure time.',
+          { proposedReturnAt: 'Return must be after departure.' });
+      }
+      const hours = (returnDate.getTime() - departDate.getTime()) / 3600000;
+      const maxDuration = numSetting(db, 'max_duration_hours', 72);
+      if (hours > maxDuration) {
+        throw demoError(400,
+          `The proposed schedule may not exceed ${maxDuration} hours — the school's configured limit.`,
+          { proposedReturnAt: `Shorten the schedule to ${maxDuration} hours or less.` });
+      }
+      proposedDepartAt = departDate.toISOString();
+      proposedReturnAt = returnDate.toISOString();
+    }
+  }
+
   const now = nowIso();
+  const effectiveDepart = proposedDepartAt || request.proposedDepartAt || request.departAt;
+  const effectiveReturn = proposedReturnAt || request.proposedReturnAt || request.returnAt;
   db.approvals.push({
     id: newId(),
     requestId: request.id,
@@ -545,15 +604,24 @@ function decide(db, reviewer, requestId, decision, comment) {
     decision,
     comment: cleanComment || null,
     createdAt: now,
+    proposedDepartAt: decision === 'approved' ? effectiveDepart : null,
+    proposedReturnAt: decision === 'approved' ? effectiveReturn : null,
+    dateReason,
   });
 
   let pass = null;
   if (decision === 'approved') {
     if (stage === 'housemaster' && request.requiresSenior) {
       request.status = 'pending_senior';
+      request.proposedDepartAt = effectiveDepart;
+      request.proposedReturnAt = effectiveReturn;
     } else {
       request.status = 'approved';
       request.decidedAt = now;
+      request.proposedDepartAt = effectiveDepart;
+      request.proposedReturnAt = effectiveReturn;
+      request.approvedDepartAt = effectiveDepart;
+      request.approvedReturnAt = effectiveReturn;
       pass = issuePass(db, request.id);
     }
   } else if (decision === 'rejected') {
@@ -769,6 +837,8 @@ function route(db, m, url, body, query, headers) {
 
       if (m === 'GET' && rest === '') {
         const pass = db.passes.find((p) => p.requestId === id);
+        const approvals = db.approvals.filter((a) => a.requestId === id)
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
         return {
           request: serializeRequest(request, { includeGuardian: true }),
           student: {
@@ -777,6 +847,16 @@ function route(db, m, url, body, query, headers) {
             classYear: student.profile?.classYear,
             house: student.profile?.house,
           },
+          approvals: approvals.map((a) => ({
+            stage: a.stage,
+            decision: a.decision,
+            comment: a.comment,
+            reviewerName: db.users.find((u) => u.id === a.reviewerId)?.fullName || 'staff',
+            at: a.createdAt,
+            proposedDepartAt: a.proposedDepartAt || null,
+            proposedReturnAt: a.proposedReturnAt || null,
+            dateReason: a.dateReason || null,
+          })),
           timeline: timeline(db, id),
           pass: pass ? presentPass(pass) : null,
         };
@@ -855,15 +935,26 @@ function route(db, m, url, body, query, headers) {
             comment: a.comment,
             reviewerName: db.users.find((u) => u.id === a.reviewerId)?.fullName || 'staff',
             at: a.createdAt,
+            proposedDepartAt: a.proposedDepartAt || null,
+            proposedReturnAt: a.proposedReturnAt || null,
+            dateReason: a.dateReason || null,
           })),
           timeline: timeline(db, id),
           pass: pass ? presentPass(pass) : null,
           canDecide,
           nextStage: stage,
+          policy: {
+            maxDurationHours: numSetting(db, 'max_duration_hours', 72),
+            externalMinNoticeHours: numSetting(db, 'external_min_notice_hours', 24),
+          },
         };
       }
       if (m === 'POST' && rest === '/decision') {
-        return decide(db, user, id, body.decision, body.comment);
+        return decide(db, user, id, body.decision, body.comment, {
+          proposedDepartAt: body.proposedDepartAt,
+          proposedReturnAt: body.proposedReturnAt,
+          dateReason: body.dateReason,
+        });
       }
     }
   }

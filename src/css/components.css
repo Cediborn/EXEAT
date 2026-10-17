@@ -321,8 +321,15 @@
 .table tbody tr:last-child td { border-bottom: none; }
 .table tbody tr { transition: background var(--duration-fast) var(--ease); }
 .table tbody tr:hover { background: var(--surface); }
-.table .row-link { color: inherit; font-weight: 600; }
+.table .row-link { color: inherit; font-weight: 600; text-decoration: underline; text-decoration-color: var(--accent-strong); text-underline-offset: 0.2em; }
 .table .row-link:hover { color: var(--accent-strong); }
+/* Staff queue: the whole row opens the request. */
+.table tr.staff-row { cursor: pointer; }
+.table tr.staff-row:hover { background: var(--surface); }
+.table tr.staff-row:focus-within { background: var(--surface); }
+
+/* Card-body divider (dates under review) */
+.card-body hr.divider { border: none; border-top: 1px solid var(--border); margin: var(--space-5) 0; }
 
 /* Filters */
 .filters {

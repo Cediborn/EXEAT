@@ -2,6 +2,7 @@ import { h } from '../dom.js';
 import { statusBadge, urgentBadge, typePill } from './ui.js';
 import { formatDateTime, relativeTime, durationLabel } from '../format.js';
 import { categoryLabel } from '../validation.js';
+import { navigate } from '../router.js';
 
 /** Compact card linking to a request's detail page. */
 export function requestCard(request) {
@@ -25,16 +26,25 @@ export function requestCard(request) {
       request.submittedAt ? h('span', null, `Submitted ${relativeTime(request.submittedAt)}`) : null));
 }
 
-/** Staff queue row. */
+/** Staff queue row — the whole row opens the request review screen. */
 export function staffRow(request, role) {
   const canDecide = ['pending', 'pending_senior'].includes(request.status)
     && !(role === 'senior' && request.status === 'pending')
     && !(role === 'housemaster' && request.status === 'pending_senior');
-  return h('tr', null,
+  const href = `#/staff/requests/${request.id}`;
+  return h('tr', {
+    class: 'staff-row',
+    title: 'Open this request',
+    onclick: (event) => {
+      // The reference link navigates on its own; avoid double handling.
+      if (event.target.closest('a')) return;
+      navigate(href);
+    },
+  },
     h('td', null,
-      h('a', { class: 'row-link', href: `#/staff/requests/${request.id}` }, request.reference),
+      h('a', { class: 'row-link', href }, request.reference),
       h('div', { style: { color: 'var(--text-muted)', 'font-size': 'var(--text-xs)' } },
-        canDecide ? 'Action needed' : 'View only')),
+        canDecide ? 'Action needed — open to decide' : 'View only')),
     h('td', null,
       h('div', { style: { fontWeight: 600 } }, request.student?.fullName || '—'),
       h('div', { style: { color: 'var(--text-muted)', 'font-size': 'var(--text-xs)' } },

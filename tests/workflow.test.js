@@ -230,3 +230,147 @@ test('student notifications are created for key events', async () => {
   assert.equal(notes.status, 200);
   assert.ok(notes.json.notifications.some((n) => n.type === 'pass_issued'));
 });
+
+test('housemaster can shorten the schedule when approving; senior finalises the dates', async () => {
+  const student = await studentClient();
+  const hm = createClient(server.base);
+  await hm.login('TEST-HM1', fixtures.password);
+  const senior = createClient(server.base);
+  await senior.login('TEST-SENIOR', fixtures.password);
+
+  const request = await submit(student, {
+    type: 'external',
+    reason: 'Attending a family gathering with my guardian.',
+    destination: 'Elmina — family home',
+    guardianName: 'Guardian Person',
+    guardianPhone: '0240000000',
+    ...departParts(when(30).toISOString()),
+    ...returnParts(when(50).toISOString()),
+  });
+  assert.equal(request.status, 'pending');
+
+  const shorterReturn = new Date(Date.now() + 34 * 3600 * 1000);
+  const decision = await hm.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'approved',
+    comment: 'Shortening the visit.',
+    proposedDepartAt: request.departAt,
+    proposedReturnAt: shorterReturn.toISOString(),
+    dateReason: 'The weekend visit does not need five days.',
+  });
+  assert.equal(decision.status, 200, decision.text);
+  assert.equal(decision.json.request.status, 'pending_senior', 'external approval forwards to the senior');
+  assert.equal(decision.json.request.departAt, request.departAt, 'original departure is never overwritten');
+  assert.equal(decision.json.request.returnAt, request.returnAt, 'original return is never overwritten');
+  assert.ok(decision.json.request.proposedReturnAt, 'proposal recorded on the request');
+
+  // The senior sees the proposal and the housemaster's decision before acting.
+  const detail = await senior.get(`/api/staff/requests/${request.id}`);
+  assert.equal(detail.status, 200, detail.text);
+  assert.equal(detail.json.request.status, 'pending_senior');
+  assert.ok(detail.json.request.proposedReturnAt, 'senior sees the proposed dates');
+  assert.equal(detail.json.approvals.length, 1);
+  assert.equal(detail.json.approvals[0].stage, 'housemaster');
+  assert.ok(detail.json.approvals[0].dateReason, 'senior sees the adjustment reason');
+
+  // Senior approves, forwarding the same proposal � no new reason required.
+  const final = await senior.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'approved',
+    comment: 'Approved.',
+    proposedDepartAt: detail.json.request.proposedDepartAt,
+    proposedReturnAt: detail.json.request.proposedReturnAt,
+  });
+  assert.equal(final.status, 200, final.text);
+  assert.equal(final.json.request.status, 'approved');
+  assert.ok(final.json.request.approvedReturnAt, 'final approval freezes the authorised schedule');
+  assert.equal(
+    new Date(final.json.request.approvedReturnAt).getTime(),
+    new Date(shorterReturn.toISOString()).getTime(),
+    'authorised return matches the shortened proposal');
+
+  // The pass expires at the authorised return, not the student's original.
+  const passRes = await student.get(`/api/requests/${request.id}/pass`);
+  assert.equal(passRes.status, 200, passRes.text);
+  assert.equal(passRes.json.pass.expiresAt, final.json.request.approvedReturnAt);
+
+  // Student view: original dates preserved, approved schedule visible, not completed.
+  const mine = await student.get(`/api/requests/${request.id}`);
+  assert.equal(mine.json.request.status, 'approved', 'approved is not completed');
+  assert.equal(mine.json.request.returnAt, request.returnAt, 'original dates still shown to the student');
+  assert.equal(mine.json.request.approvedReturnAt, final.json.request.approvedReturnAt);
+  assert.ok(mine.json.approvals.some((a) => a.dateReason), 'student sees the adjustment reason');
+});
+
+test('changed proposed dates require a reason and must fit the configured limits', async () => {
+  const student = await studentClient();
+  const hm = createClient(server.base);
+  await hm.login('TEST-HM1', fixtures.password);
+
+  const request = await submit(student, {
+    type: 'external',
+    reason: 'Attending a family gathering with my guardian.',
+    destination: 'Elmina — family home',
+    guardianName: 'Guardian Person',
+    guardianPhone: '0240000000',
+    ...departParts(when(30).toISOString()),
+    ...returnParts(when(50).toISOString()),
+  });
+  const proposedDepartAt = request.departAt;
+
+  const noReason = await hm.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'approved',
+    proposedDepartAt,
+    proposedReturnAt: new Date(Date.now() + 36 * 3600 * 1000).toISOString(),
+  });
+  assert.equal(noReason.status, 400, noReason.text);
+
+  const beforeDepart = await hm.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'approved',
+    proposedDepartAt,
+    proposedReturnAt: new Date(Date.now() + 20 * 3600 * 1000).toISOString(),
+    dateReason: 'Trying an invalid range.',
+  });
+  assert.equal(beforeDepart.status, 400, beforeDepart.text);
+
+  const tooLong = await hm.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'approved',
+    proposedDepartAt,
+    proposedReturnAt: new Date(Date.now() + 30 * 3600 * 1000 + 73 * 3600 * 1000).toISOString(),
+    dateReason: 'Trying to exceed the configured duration limit.',
+  });
+  assert.equal(tooLong.status, 400, tooLong.text);
+
+  // None of the invalid attempts consumed the decision.
+  const detail = await hm.get(`/api/staff/requests/${request.id}`);
+  assert.equal(detail.json.request.status, 'pending');
+  assert.equal(detail.json.approvals.length, 0, 'no partial approval was recorded');
+});
+
+test('rejected requests show the reason to the student and cannot proceed', async () => {
+  const student = await studentClient();
+  const hm = createClient(server.base);
+  await hm.login('TEST-HM1', fixtures.password);
+
+  const request = await submit(student);
+
+  const noReason = await hm.post(`/api/staff/requests/${request.id}/decision`, { decision: 'rejected', comment: '' });
+  assert.equal(noReason.status, 400, 'rejection without a reason is blocked');
+
+  const rejected = await hm.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'rejected',
+    comment: 'Midterm exams block this outing.',
+  });
+  assert.equal(rejected.status, 200, rejected.text);
+  assert.equal(rejected.json.request.status, 'rejected');
+
+  const mine = await student.get(`/api/requests/${request.id}`);
+  assert.equal(mine.json.request.status, 'rejected');
+  assert.ok(
+    mine.json.approvals.some((a) => a.decision === 'rejected' && a.comment.includes('Midterm')),
+    'student sees the rejection reason');
+
+  const again = await hm.post(`/api/staff/requests/${request.id}/decision`, { decision: 'approved', comment: 'changed my mind' });
+  assert.equal(again.status, 409, 'a rejected request cannot be approved afterwards');
+
+  const queue = await hm.get('/api/staff/requests?status=pending');
+  assert.ok(!queue.json.requests.some((r) => r.id === request.id), 'rejected request left the active queue');
+});

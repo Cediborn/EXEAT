@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getDb } from '../db.js';
+import { getDb, getNumberSetting } from '../db.js';
 import { asyncHandler, badRequest, forbidden, notFound } from '../middleware/errors.js';
 import { requireAuth, requireRole, audit } from '../middleware/auth.js';
 import { decide, serializeRequest, timeline, STATUS_LABELS } from '../services/workflow.js';
@@ -155,6 +155,9 @@ staffRouter.get('/requests/:id', asyncHandler(async (req, res) => {
       comment: a.comment,
       reviewerName: a.reviewer_name,
       at: a.created_at,
+      proposedDepartAt: a.proposed_depart_at || null,
+      proposedReturnAt: a.proposed_return_at || null,
+      dateReason: a.date_reason || null,
     })),
     timeline: timeline(row.id),
     pass: pass ? {
@@ -167,6 +170,10 @@ staffRouter.get('/requests/:id', asyncHandler(async (req, res) => {
     } : null,
     canDecide,
     nextStage: stage,
+    policy: {
+      maxDurationHours: getNumberSetting('max_duration_hours', 72),
+      externalMinNoticeHours: getNumberSetting('external_min_notice_hours', 24),
+    },
   });
 }));
 
@@ -175,7 +182,11 @@ staffRouter.post('/requests/:id/decision', asyncHandler(async (req, res) => {
   if (!['approved', 'rejected', 'returned'].includes(decision)) {
     throw badRequest('Choose approve, reject, or return for correction.');
   }
-  const result = decide(req.user, req.params.id, decision, req.body?.comment);
+  const result = decide(req.user, req.params.id, decision, req.body?.comment, {
+    proposedDepartAt: req.body?.proposedDepartAt,
+    proposedReturnAt: req.body?.proposedReturnAt,
+    dateReason: req.body?.dateReason,
+  });
   audit(req.user.id, `request_${decision}`, 'exeat_requests', req.params.id, { stage: result.request.status });
   res.json({ request: result.request, pass: result.pass ? { code: result.pass.code } : null });
 }));

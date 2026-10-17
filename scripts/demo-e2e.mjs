@@ -10,7 +10,16 @@
  *   → pass issued → gate depart/return → completed; admin announcement;
  *   draft persistence; role picker; access control; responsive check.
  *
+ * Also runs the §10 approval-workflow scenarios against the demo adapter:
+ * return-date adjustment (reason required), rejection (reason required,
+ * queue removal, student visibility), return-for-correction + resubmit,
+ * senior visibility of the housemaster's decision, authorised vs original
+ * dates, approved ≠ completed, queue search/filters, and a page-error check.
+ *
  * Usage:  node scripts/demo-e2e.mjs
+ *         DEMO_E2E_BASE=https://exeat-inky.vercel.app node scripts/demo-e2e.mjs
+ *         (the BASE form drives an already-deployed demo build instead of a
+ *         local static server; browser profile is still fresh)
  */
 import { spawn } from 'node:child_process';
 import http from 'node:http';
@@ -77,6 +86,7 @@ if (!EDGE) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PORT = 4173;
+const stopServer = () => { try { server.close(); } catch { /* never started (remote base) */ } };
 
 async function listen() {
   for (let p = PORT; p < PORT + 20; p += 1) {
@@ -100,9 +110,16 @@ function check(name, condition, detail = '') {
 }
 
 async function main() {
-  const basePort = await listen();
-  const BASE = `http://127.0.0.1:${basePort}`;
-  console.log(`Demo static server on ${BASE} (config.js → demoMode: true)`);
+  const REMOTE = process.env.DEMO_E2E_BASE ? process.env.DEMO_E2E_BASE.replace(/\/+$/, '') : null;
+  let BASE;
+  if (REMOTE) {
+    BASE = REMOTE;
+    console.log(`Using deployed demo at ${BASE}`);
+  } else {
+    const basePort = await listen();
+    BASE = `http://127.0.0.1:${basePort}`;
+    console.log(`Demo static server on ${BASE} (config.js → demoMode: true)`);
+  }
 
   const child = spawn(EDGE, [
     '--headless=new',
@@ -237,6 +254,60 @@ async function main() {
     return picked;
   }
 
+  /**
+   * Student submits a request through the real form, then opens its detail
+   * via "Track this request" so the caller gets { ok, reference, id }.
+   */
+  async function submitRequest(session, opts) {
+    return session.evaluate(async (o) => {
+      location.hash = '#/app/new';
+      await new Promise((r) => setTimeout(r, 900));
+      if (!document.querySelector('#reason')) {
+        const want = o.type === 'external' ? 'External' : 'Internal';
+        const card = [...document.querySelectorAll('.type-card')].find((c) => c.textContent.includes(want));
+        if (!card) return { ok: false, reason: `no ${want} type card` };
+        card.click();
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (!document.querySelector('#reason')) return { ok: false, reason: 'form not shown' };
+      const set = (id, value) => {
+        const el = document.querySelector(id);
+        if (!el) return;
+        el.value = value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      set('#category', o.category || 'family');
+      set('#reason', o.reason);
+      set('#destination', o.destination);
+      const depart = new Date(Date.now() + o.departInHours * 3600 * 1000);
+      const back = new Date(Date.now() + o.returnInHours * 3600 * 1000);
+      const pad = (n) => String(n).padStart(2, '0');
+      const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const dstr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      set('#departDate', dstr(depart)); set('#departTime', hm(depart));
+      set('#returnDate', dstr(back)); set('#returnTime', hm(back));
+      if (o.type === 'external') {
+        set('#guardianName', 'Ama Mensah');
+        set('#guardianPhone', '0241234567');
+      }
+      document.querySelector('form').requestSubmit();
+      await new Promise((r) => setTimeout(r, 700));
+      const submitBtn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Submit request');
+      if (!submitBtn) return { ok: false, reason: 'review step missing submit' };
+      submitBtn.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      if (!document.body.textContent.includes('Request submitted')) return { ok: false, reason: 'no confirmation' };
+      const reference = (document.body.textContent.match(/EXE-\d{4}-\d{4}/) || [null])[0];
+      const track = [...document.querySelectorAll('button')].find((b) => /Track this request/.test(b.textContent));
+      if (!track) return { ok: false, reason: 'no track button', reference };
+      track.click();
+      await new Promise((r) => setTimeout(r, 1200));
+      const id = (location.hash.match(/#\/app\/requests\/(.+)$/) || [null, null])[1];
+      return { ok: true, reference, id };
+    }, opts);
+  }
+
   try {
     await waitForDevtools();
     const target = await fetch(`http://127.0.0.1:${browserPort}/json/new?${encodeURIComponent(BASE)}/`, { method: 'PUT' }).then((r) => r.json());
@@ -245,6 +316,24 @@ async function main() {
     const session = new Session(ws);
     await session.send('Page.enable');
     await session.send('Runtime.enable');
+
+    // Page-error collector for the §10 regression check.
+    let pageErrors = 0;
+    ws.addEventListener('message', (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.method === 'Runtime.exceptionThrown') {
+          pageErrors += 1;
+          console.log('PAGE EXCEPTION:',
+            msg.params?.exceptionDetails?.exception?.description || msg.params?.exceptionDetails?.text || '');
+        }
+        if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.type === 'error') {
+          pageErrors += 1;
+          console.log('PAGE ERROR:',
+            (msg.params.args || []).map((a) => a.value ?? a.description ?? '').join(' '));
+        }
+      } catch { /* ignore malformed frames */ }
+    });
 
     /* ---------- 1. Landing: demo banner + SVG icons, no feature emoji ---------- */
     await session.goto(`${BASE}/`);
@@ -562,6 +651,285 @@ async function main() {
     });
     check('senior approval completes the external flow and issues a pass', snrApproved.ok && snrApproved.passIssued, JSON.stringify(snrApproved));
 
+    /* ---------- 7b. §10 Tests A–D: date adjustment, rejection, correction, authorisation ---------- */
+    await signOut(session);
+    const stuA = await session.evaluate(async () => {
+      const b = [...document.querySelectorAll('.hero-actions button')].find((x) => /Student portal/.test(x.textContent));
+      if (!b) { location.hash = '#/'; await new Promise((r) => setTimeout(r, 800)); }
+      const b2 = [...document.querySelectorAll('.hero-actions button')].find((x) => /Student portal/.test(x.textContent));
+      if (!b2) return { ok: false, reason: 'no student portal button' };
+      b2.click();
+      await new Promise((r) => setTimeout(r, 1500));
+      return { ok: location.hash === '#/app' };
+    });
+    check('scenario setup: student session opens', stuA.ok, JSON.stringify(stuA));
+
+    const tak = await submitRequest(session, {
+      type: 'external',
+      reason: 'Weekend home visit with my guardian, supervised throughout.',
+      destination: 'Takoradi — aunt’s home',
+      departInHours: 30,
+      returnInHours: 50,
+    });
+    check('scenario: external request submitted', tak.ok && tak.id, JSON.stringify(tak));
+    const accra = await submitRequest(session, {
+      type: 'internal',
+      reason: 'Visiting my cousin in Accra for a family event.',
+      destination: 'Accra — cousin’s home',
+      departInHours: 4,
+      returnInHours: 10,
+    });
+    check('scenario: first internal request submitted', accra.ok && accra.id, JSON.stringify(accra));
+    const uncle = await submitRequest(session, {
+      type: 'internal',
+      reason: 'Staying with my uncle while my parents travel.',
+      destination: 'Cape Coast — uncle’s home',
+      departInHours: 5,
+      returnInHours: 12,
+    });
+    check('scenario: second internal request submitted', uncle.ok && uncle.id, JSON.stringify(uncle));
+
+    // Senior scope: internals are not listed and their detail is forbidden.
+    await signOut(session);
+    const snrScope = await staffSignIn(session, 'senior');
+    check('scenario: senior signs in', snrScope.ok && snrScope.hash === '#/staff', JSON.stringify(snrScope));
+    await session.waitFor("document.querySelectorAll('.table tbody tr').length >= 1", 15000).catch(() => {});
+    const seniorRows = await session.evaluate((ids) => ({
+      anyInternal: [...document.querySelectorAll('.table tbody a')]
+        .some((a) => ids.includes((a.getAttribute('href') || '').split('/').pop())),
+      count: document.querySelectorAll('.table tbody tr').length,
+    }), [accra.id, uncle.id]);
+    check('senior queue lists only requests that need senior review', !seniorRows.anyInternal, JSON.stringify(seniorRows));
+    await session.evaluate((id) => { location.hash = `#/staff/requests/${id}`; }, accra.id);
+    await sleep(1200);
+    const seniorForbidden = await session.evaluate("document.body.textContent.includes('Outside your access')");
+    check('senior cannot open an internal request detail', seniorForbidden === true);
+    await session.screenshot('11-senior-scope');
+
+    // Housemaster: filters/search, row click, date adjustment, reject, return.
+    await signOut(session);
+    const hm3 = await staffSignIn(session, 'housemaster');
+    check('scenario: housemaster signs in for the workflow tests', hm3.ok && hm3.hash === '#/staff', JSON.stringify(hm3));
+    await session.waitFor("document.querySelectorAll('.table tbody tr').length >= 3", 15000).catch(() => {});
+    const searchCheck = await session.evaluate(async () => {
+      const input = document.querySelector('#staff-search');
+      input.value = 'Takoradi';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 700));
+      const rows = [...document.querySelectorAll('.table tbody tr')];
+      const onlyTak = rows.length >= 1 && rows.every((tr) => tr.textContent.includes('Takoradi'));
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 700));
+      return { onlyTak, rows: rows.length };
+    });
+    check('queue search filters by destination', searchCheck.onlyTak === true, JSON.stringify(searchCheck));
+
+    const chipCheck = await session.evaluate(async () => {
+      const awaiting = [...document.querySelectorAll('.summary-chip')].find((c) => /Awaiting my review/.test(c.textContent));
+      if (!awaiting) return { ok: false, reason: 'no awaiting-my-review chip' };
+      awaiting.click();
+      await new Promise((r) => setTimeout(r, 700));
+      const rows = [...document.querySelectorAll('.table tbody tr')];
+      const allActionable = rows.length >= 1 && rows.every((tr) => /Action needed/.test(tr.textContent));
+      const hasRejectedChip = [...document.querySelectorAll('.summary-chip')]
+        .some((c) => /Rejected/.test(c.textContent));
+      const all = [...document.querySelectorAll('.summary-chip')].find((c) => c.textContent.startsWith('All'));
+      all?.click();
+      await new Promise((r) => setTimeout(r, 500));
+      return { ok: true, allActionable, hasRejectedChip };
+    });
+    check('awaiting-my-review filter shows only actionable rows', chipCheck.ok && chipCheck.allActionable, JSON.stringify(chipCheck));
+    check('rejected filter chip is available to staff', chipCheck.hasRejectedChip === true);
+
+    const rowOpen = await session.evaluate(async (id) => {
+      const row = [...document.querySelectorAll('tr.staff-row')]
+        .find((tr) => tr.querySelector(`a[href="#/staff/requests/${id}"]`));
+      if (!row) return { ok: false, reason: 'queue row not found' };
+      row.click();
+      await new Promise((r) => setTimeout(r, 1500));
+      return { ok: location.hash === `#/staff/requests/${id}`, hash: location.hash };
+    }, tak.id);
+    check('clicking anywhere on a queue row opens the request', rowOpen.ok, JSON.stringify(rowOpen));
+
+    const dateAdjust = await session.evaluate(async () => {
+      const retDate = document.querySelector('#prop-returnDate');
+      const retTime = document.querySelector('#prop-returnTime');
+      if (!retDate || !retTime) return { ok: false, reason: 'no proposed date fields' };
+      const originalShown = document.body.textContent.includes('Dates under review')
+        && !!document.querySelector('#prop-departDate');
+      const back = new Date(Date.now() + 34 * 3600 * 1000);
+      const pad = (n) => String(n).padStart(2, '0');
+      retDate.value = `${back.getFullYear()}-${pad(back.getMonth() + 1)}-${pad(back.getDate())}`;
+      retTime.value = `${pad(back.getHours())}:${pad(back.getMinutes())}`;
+      const approve = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Approve');
+      if (!approve) return { ok: false, reason: 'no approve button', originalShown };
+      approve.click();
+      await new Promise((r) => setTimeout(r, 500));
+      const dialogOpenedWithoutReason = !!document.querySelector('.dialog');
+      if (dialogOpenedWithoutReason) {
+        document.querySelector('.dialog button')?.click();
+        return { ok: false, reason: 'dialog opened without a date reason', originalShown };
+      }
+      const reasonError = [...document.querySelectorAll('.field-error')]
+        .some((e) => !e.hidden && /changing the proposed/i.test(e.textContent));
+      const reason = document.querySelector('#prop-dateReason');
+      reason.value = 'The requested visit is longer than needed — return two days earlier.';
+      const comment = document.querySelector('#decision-comment');
+      comment.value = 'Shortened to a weekend trip.';
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Approve').click();
+      await new Promise((r) => setTimeout(r, 500));
+      const dialogShowsProposal = document.body.textContent.includes('Proposed schedule:')
+        && document.body.textContent.includes('Date adjustment');
+      const confirm = [...document.querySelectorAll('.dialog button')].find((b) => /Yes, approve/.test(b.textContent));
+      if (!confirm) return { ok: false, reason: 'no approve confirm', dialogShowsProposal, reasonError, originalShown };
+      confirm.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      const awaitingSenior = document.body.textContent.includes('Pending senior housemaster approval');
+      return { ok: true, reasonError, dialogShowsProposal, awaitingSenior, originalShown };
+    });
+    check('staff detail shows the original request dates', dateAdjust.originalShown === true, JSON.stringify(dateAdjust));
+    check('changing proposed dates without a reason is blocked', dateAdjust.reasonError === true);
+    check('approval dialog confirms the proposed schedule', dateAdjust.dialogShowsProposal === true);
+    check('housemaster approval forwards the shortened proposal to the senior', dateAdjust.awaitingSenior === true);
+
+    const rejectFlow = await session.evaluate(async (id) => {
+      location.hash = `#/staff/requests/${id}`;
+      await new Promise((r) => setTimeout(r, 1500));
+      const reject = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Reject');
+      if (!reject) return { ok: false, reason: 'no reject button' };
+      reject.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const dialogOpened = !!document.querySelector('.dialog');
+      if (dialogOpened) {
+        document.querySelector('.dialog button')?.click();
+        return { ok: false, reason: 'reject dialog opened without a reason' };
+      }
+      const commentError = [...document.querySelectorAll('.field-error')]
+        .some((e) => !e.hidden && /clear reason/.test(e.textContent));
+      const comment = document.querySelector('#decision-comment');
+      comment.value = 'This clashes with the prep timetable.';
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Reject').click();
+      await new Promise((r) => setTimeout(r, 400));
+      const confirm = [...document.querySelectorAll('.dialog button')].find((b) => /Yes, reject/.test(b.textContent));
+      if (!confirm) return { ok: false, reason: 'no reject confirm', commentError };
+      confirm.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      const rejectedShown = document.body.textContent.includes('Rejected');
+      location.hash = '#/staff';
+      await new Promise((r) => setTimeout(r, 1200));
+      const awaiting = [...document.querySelectorAll('.summary-chip')].find((c) => /Awaiting my review/.test(c.textContent));
+      awaiting?.click();
+      await new Promise((r) => setTimeout(r, 800));
+      const inActive = [...document.querySelectorAll('.table tbody tr')].some((tr) => tr.textContent.includes('Accra'));
+      return { ok: true, commentError, rejectedShown, inActive };
+    }, accra.id);
+    check('rejection without a reason is blocked', rejectFlow.commentError === true, JSON.stringify(rejectFlow));
+    check('rejection with a reason is recorded', rejectFlow.rejectedShown === true);
+    check('rejected request leaves the active approval queue', rejectFlow.inActive === false);
+
+    const returnFlow = await session.evaluate(async (id) => {
+      location.hash = `#/staff/requests/${id}`;
+      await new Promise((r) => setTimeout(r, 1500));
+      const comment = document.querySelector('#decision-comment');
+      if (!comment) return { ok: false, reason: 'no decision panel' };
+      comment.value = 'Add the guardian phone number you will travel with.';
+      const ret = [...document.querySelectorAll('button')].find((b) => /Return for correction/.test(b.textContent));
+      if (!ret) return { ok: false, reason: 'no return button' };
+      ret.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const confirm = [...document.querySelectorAll('.dialog button')].find((b) => /Yes, return/.test(b.textContent));
+      if (!confirm) return { ok: false, reason: 'no return confirm' };
+      confirm.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      return { ok: true, returned: document.body.textContent.includes('Returned for correction') };
+    }, uncle.id);
+    check('return for correction is recorded', returnFlow.ok && returnFlow.returned, JSON.stringify(returnFlow));
+
+    // Student: rejection reason, correction explanation, resubmit with preserved data.
+    await signOut(session);
+    await session.evaluate(async () => {
+      const b = [...document.querySelectorAll('.hero-actions button')].find((x) => /Student portal/.test(x.textContent));
+      if (b) { b.click(); await new Promise((r) => setTimeout(r, 1500)); }
+    });
+    await session.evaluate((id) => { location.hash = `#/app/requests/${id}`; }, accra.id);
+    await sleep(1500);
+    const studentRejectView = await session.evaluate(() =>
+      document.body.textContent.includes('Rejected — reason')
+      && document.body.textContent.includes('prep timetable'));
+    check('student sees the rejection reason', studentRejectView === true);
+
+    await session.evaluate((id) => { location.hash = `#/app/requests/${id}`; }, uncle.id);
+    await sleep(1500);
+    const studentReturnView = await session.evaluate(async () => {
+      const explanation = document.body.textContent.includes('What needs changing')
+        && document.body.textContent.includes('guardian phone number');
+      const dest = document.querySelector('#fix-destination');
+      const preserved = !!dest && /uncle/.test(dest.value);
+      if (!dest) return { explanation, preserved, resubmitted: false };
+      dest.value = 'Cape Coast — uncle’s house (updated)';
+      dest.dispatchEvent(new Event('input', { bubbles: true }));
+      const save = [...document.querySelectorAll('button')].find((b) => /Save and resubmit/.test(b.textContent));
+      save.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      const pendingAgain = document.body.textContent.includes('Pending housemaster approval');
+      const updatedKept = document.body.textContent.includes('uncle’s house (updated)');
+      return { explanation, preserved, resubmitted: true, pendingAgain, updatedKept };
+    });
+    check('student sees the correction explanation', studentReturnView.explanation === true, JSON.stringify(studentReturnView));
+    check('returned form preserves previously entered information', studentReturnView.preserved === true);
+    check('resubmitted request returns to the housemaster stage', studentReturnView.pendingAgain === true && studentReturnView.updatedKept === true);
+
+    // Senior finalises the shortened proposal; sees the housemaster's decision.
+    await signOut(session);
+    const snrFinal = await staffSignIn(session, 'senior');
+    check('senior signs in for the final decision', snrFinal.ok && snrFinal.hash === '#/staff', JSON.stringify(snrFinal));
+    await session.waitFor("document.querySelectorAll('.table tbody tr').length >= 1", 15000).catch(() => {});
+    const seniorFinal = await session.evaluate(async (id) => {
+      const link = document.querySelector(`a[href="#/staff/requests/${id}"]`)
+        || [...document.querySelectorAll('.table tbody a')][0];
+      if (!link) return { ok: false, reason: 'no senior queue link' };
+      link.click();
+      await new Promise((r) => setTimeout(r, 1500));
+      const history = document.body.textContent.includes('Shortened to a weekend trip.')
+        && document.body.textContent.includes('Date adjustment');
+      const prefilledEl = document.querySelector('#prop-returnDate');
+      const prefilled = !!prefilledEl && !!prefilledEl.value;
+      const approve = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Approve');
+      if (!approve) return { ok: false, reason: 'no approve button', history, prefilled };
+      approve.click();
+      await new Promise((r) => setTimeout(r, 500));
+      const confirm = [...document.querySelectorAll('.dialog button')].find((b) => /Yes, approve/.test(b.textContent));
+      confirm.click();
+      await new Promise((r) => setTimeout(r, 2000));
+      return { ok: true, history, prefilled, passIssued: !!document.querySelector('.pass-code-value') };
+    }, tak.id);
+    check('senior sees the housemaster decision and adjustment reason', seniorFinal.history === true, JSON.stringify(seniorFinal));
+    check('senior sees the proposal pre-filled', seniorFinal.prefilled === true);
+    check('senior approval issues the pass', seniorFinal.ok && seniorFinal.passIssued === true, JSON.stringify(seniorFinal));
+
+    // Student: authorised schedule, original dates preserved, approved ≠ completed, persistence.
+    await signOut(session);
+    await session.evaluate(async () => {
+      const b = [...document.querySelectorAll('.hero-actions button')].find((x) => /Student portal/.test(x.textContent));
+      if (b) { b.click(); await new Promise((r) => setTimeout(r, 1500)); }
+    });
+    await session.evaluate((id) => { location.hash = `#/app/requests/${id}`; }, tak.id);
+    await sleep(1500);
+    const studentApproved = await session.evaluate(() => ({
+      authorised: document.body.textContent.includes('Authorised schedule'),
+      original: document.body.textContent.includes('Your original request'),
+      completed: document.body.textContent.includes('This exeat is complete'),
+    }));
+    check('student sees the authorised schedule after final approval', studentApproved.authorised === true, JSON.stringify(studentApproved));
+    check('student still sees the original requested dates', studentApproved.original === true);
+    check('approved is not marked completed before any gate movement', studentApproved.completed === false);
+    await session.goto(`${BASE}/#/app/requests/${tak.id}`);
+    await session.waitFor("document.body.textContent.includes('Authorised schedule')", 15000).catch(() => {});
+    const persistedSchedule = await session.evaluate("document.body.textContent.includes('Authorised schedule')");
+    check('authorised schedule survives a page reload', persistedSchedule === true);
+    await session.screenshot('12-authorised-schedule');
+
     /* ---------- 8. Admin: announcements CRUD ---------- */
     await signOut(session);
     const adminIn = await staffSignIn(session, 'admin');
@@ -626,20 +994,21 @@ async function main() {
     check('student dashboard has no horizontal scroll at 375px', dashMobile);
     await session.screenshot('10-dashboard-mobile');
 
-    /* ---------- 10. Reference integrity ---------- */
+    /* ---------- 10. Reference integrity + page errors ---------- */
     check('internal reference from confirmation is stable', /^EXE-\d{4}-\d{4}$/.test(internalRef || ''), internalRef || 'none');
+    check('no uncaught JavaScript errors during the run', pageErrors === 0, `${pageErrors} error(s)`);
 
     const failed = results.filter((r) => !r.ok);
     console.log(`\n${results.length - failed.length}/${results.length} demo browser checks passed`);
     console.log(`Screenshots: ${OUT}`);
     ws.close();
     child.kill();
-    server.close();
+    stopServer();
     process.exit(failed.length ? 1 : 0);
   } catch (err) {
     console.error('Demo E2E failed:', err);
     child.kill();
-    server.close();
+    stopServer();
     process.exit(1);
   }
 }

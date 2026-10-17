@@ -25,7 +25,9 @@ export function issuePass(requestId) {
     request_id: requestId,
     code: generatePassCode(),
     issued_at: nowIso(),
-    expires_at: request.return_at,
+    // Authorised return time: the finally approved schedule if staff adjusted
+    // the dates, otherwise the student's original request.
+    expires_at: request.approved_return_at || request.return_at,
     status: 'active',
   };
   db.prepare(`INSERT INTO passes (id, request_id, code, issued_at, expires_at, status)
@@ -102,7 +104,8 @@ export function passState(pass, request, now = new Date()) {
     return { valid: false, state: 'expired', message: 'The authorised return time has passed.' };
   }
   const earlyMinutes = getNumberSetting('early_departure_minutes', 30) * 60 * 1000;
-  if (now.getTime() < new Date(request.depart_at).getTime() - earlyMinutes) {
+  const departAt = request.approved_depart_at || request.depart_at;
+  if (now.getTime() < new Date(departAt).getTime() - earlyMinutes) {
     return { valid: false, state: 'too_early', message: 'Departure window has not started yet.' };
   }
   return { valid: true, state: 'active', message: 'Pass is valid.' };
