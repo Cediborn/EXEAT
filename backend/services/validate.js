@@ -67,13 +67,10 @@ export function validateApplication(body, { now = new Date() } = {}) {
   if (value.departAt && value.returnAt) {
     if (value.returnAt.getTime() <= value.departAt.getTime()) {
       errors.returnAt = 'Return time must be after departure time.';
-    } else {
-      const maxDuration = getNumberSetting('max_duration_hours', 72);
-      const hours = (value.returnAt - value.departAt) / 3600000;
-      if (hours > maxDuration) {
-        errors.returnAt = `An exeat may not exceed ${maxDuration} hours. Plan a shorter visit or speak to your housemaster.`;
-      }
     }
+    // No universal duration cap: staff review the purpose and duration in
+    // context (the configured max_duration_hours setting is advisory
+    // guidance shown on the review screen, not an automatic rejection).
   }
 
   if (value.type === 'external' && value.departAt) {

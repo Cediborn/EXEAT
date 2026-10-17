@@ -2,6 +2,7 @@ import { h, clear } from '../dom.js';
 import { session, signOut, homeRouteFor, roleLabel, portalSignIn } from '../auth.js';
 import { navigate } from '../router.js';
 import { APP_NAME, DEMO_MODE } from '../config.js';
+import { themeToggleButton } from '../theme.js';
 
 const PUBLIC_LINKS = [
   { href: '#/', label: 'Home' },
@@ -97,6 +98,13 @@ export function renderShell() {
       onclick: (e) => { e.preventDefault(); portalSignIn('staff'); },
     }, 'Sign in'));
   }
+
+  // Light/dark theme toggle: header on desktop, top of the mobile menu.
+  actions.prepend(themeToggleButton());
+  const firstMobileBtn = mobile.querySelector('.btn');
+  const mobileToggle = themeToggleButton();
+  if (firstMobileBtn) mobile.insertBefore(mobileToggle, firstMobileBtn);
+  else mobile.append(mobileToggle);
 
   toggle.onclick = () => {
     const open = toggle.getAttribute('aria-expanded') === 'true';

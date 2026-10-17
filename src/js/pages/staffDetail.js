@@ -43,7 +43,9 @@ export async function staffDetailPage({ params }) {
 
   function render(payload) {
     const { request, student, approvals, timeline: events, pass, canDecide, policy } = payload;
-    const maxHours = Number(policy?.maxDurationHours) || 72;
+    // Advisory duration-review threshold (configured guidance, never a cap).
+    const reviewHours = Number(policy?.maxDurationHours) || 72;
+    const requestedHours = (new Date(request.returnAt) - new Date(request.departAt)) / 3600000;
 
     const currentDepart = request.approvedDepartAt || request.proposedDepartAt || request.departAt;
     const currentReturn = request.approvedReturnAt || request.proposedReturnAt || request.returnAt;
@@ -64,8 +66,9 @@ export async function staffDetailPage({ params }) {
       departError: h('span', { class: 'field-error', hidden: true }),
       returnError: h('span', { class: 'field-error', hidden: true }),
       reasonError: h('span', { class: 'field-error', hidden: true }),
+      warn: h('p', { class: 'field-hint', id: 'prop-duration-warn', hidden: true }),
       hint: h('span', { class: 'field-hint' },
-        `Required whenever you change the times. The school limit is ${maxHours} hours.`),
+        `Required whenever you change the times. Schedules of ${reviewHours} hours or more get a duration-review prompt — they are never blocked automatically.`),
     };
 
     /** Read the proposed schedule; returns null when inputs are incomplete. */
@@ -94,12 +97,32 @@ export async function staffDetailPage({ params }) {
       input.focus();
     }
 
+    /** Show/hide the advisory duration warning for the proposed schedule. */
+    function updateDurationWarn() {
+      const proposed = readProposed();
+      if (!proposed || proposed.ret.getTime() <= proposed.depart.getTime()) {
+        dateCtl.warn.hidden = true;
+        return;
+      }
+      const hours = (proposed.ret.getTime() - proposed.depart.getTime()) / 3600000;
+      if (hours >= reviewHours) {
+        dateCtl.warn.textContent = `Duration review: the proposed schedule is about ${Math.round(hours)} hours — longer than the ${reviewHours}-hour guidance. Longer absences may still be legitimate; approve after considering the purpose.`;
+        dateCtl.warn.hidden = false;
+      } else {
+        dateCtl.warn.hidden = true;
+      }
+    }
+    for (const el of [dateCtl.departDate, dateCtl.departTime, dateCtl.returnDate, dateCtl.returnTime]) {
+      el.addEventListener('change', updateDurationWarn);
+    }
+
     /**
      * Validate the proposed schedule against the current one.
      * @returns {{ ok: boolean, changed: boolean, departISO?: string, returnISO?: string }}
      */
     function validateDates() {
       clearDateErrors();
+      updateDurationWarn();
       const proposed = readProposed();
       if (!proposed) {
         fail(dateCtl.returnDate, dateCtl.returnError, 'Fill in all four proposed date and time fields.');
@@ -107,12 +130,6 @@ export async function staffDetailPage({ params }) {
       }
       if (proposed.ret.getTime() <= proposed.depart.getTime()) {
         fail(dateCtl.returnDate, dateCtl.returnError, 'The proposed return must be after the proposed departure.');
-        return { ok: false, changed: false };
-      }
-      const hours = (proposed.ret.getTime() - proposed.depart.getTime()) / 3600000;
-      if (hours > maxHours) {
-        fail(dateCtl.returnDate, dateCtl.returnError,
-          `The proposed schedule may not exceed ${maxHours} hours — the school's configured limit.`);
         return { ok: false, changed: false };
       }
       const changed = minuteOf(proposed.depart) !== minuteOf(currentDepart)
@@ -161,7 +178,7 @@ export async function staffDetailPage({ params }) {
                 detail('Destination', request.destination),
                 detail('Urgency', request.urgent ? 'Urgent (medical)' : 'Standard'),
                 detail('Submitted', request.submittedAt ? `${formatDateTime(request.submittedAt)} (${relativeTime(request.submittedAt)})` : '—')))),
-          datesCard(request, canDecide, dateCtl, proposalTouched),
+          datesCard(request, canDecide, dateCtl, proposalTouched, requestedHours, reviewHours),
           h('div', { class: 'card' },
             h('div', { class: 'card-header' }, h('h2', null, 'Decision history')),
             h('div', { class: 'card-body' },
@@ -198,14 +215,25 @@ export async function staffDetailPage({ params }) {
    * Original student request vs proposed schedule vs final authorised
    * schedule. Editable for the reviewer who can decide right now; read-only
    * for everyone else. The original request is never overwritten.
+   * Long requests get an advisory duration-review prompt, never a block.
    */
-  function datesCard(request, canDecide, dateCtl, proposalTouched) {
+  function datesCard(request, canDecide, dateCtl, proposalTouched, requestedHours, reviewHours) {
     const original = h('dl', { class: 'detail-grid' },
       detail('Departs', formatDateTime(request.departAt)),
       detail('Return by', formatDateTime(request.returnAt)),
       detail('Duration', durationLabel(request.departAt, request.returnAt)));
 
-    const body = [original];
+    const durationWarning = requestedHours >= reviewHours
+      ? h('div', { class: 'alert alert-warning', style: { 'margin-top': 'var(--space-4)' } },
+        h('div', null,
+          h('strong', null, 'Duration review recommended'),
+          h('span', null,
+            `The requested duration (${durationLabel(request.departAt, request.returnAt)}) appears unusually long for the stated purpose — `
+            + `${categoryLabel(request.category)} · ${request.destination}. `
+            + 'Review the dates before making a decision. Longer absences may still be legitimate; this is guidance for your judgment, not an automatic rule.')))
+      : null;
+
+    const body = [original, durationWarning];
 
     if (canDecide) {
       body.push(
@@ -228,7 +256,8 @@ export async function staffDetailPage({ params }) {
           h('label', { for: 'prop-dateReason' }, 'Adjustment reason'),
           dateCtl.reason,
           dateCtl.hint,
-          dateCtl.reasonError));
+          dateCtl.reasonError,
+          dateCtl.warn));
     } else {
       body.push(
         h('hr', { class: 'divider', style: { margin: 'var(--space-5) 0' } }),

@@ -300,7 +300,7 @@ test('housemaster can shorten the schedule when approving; senior finalises the 
   assert.ok(mine.json.approvals.some((a) => a.dateReason), 'student sees the adjustment reason');
 });
 
-test('changed proposed dates require a reason and must fit the configured limits', async () => {
+test('changed proposed dates require a reason; long schedules are never auto-blocked', async () => {
   const student = await studentClient();
   const hm = createClient(server.base);
   await hm.login('TEST-HM1', fixtures.password);
@@ -331,18 +331,23 @@ test('changed proposed dates require a reason and must fit the configured limits
   });
   assert.equal(beforeDepart.status, 400, beforeDepart.text);
 
-  const tooLong = await hm.post(`/api/staff/requests/${request.id}/decision`, {
-    decision: 'approved',
-    proposedDepartAt,
-    proposedReturnAt: new Date(Date.now() + 30 * 3600 * 1000 + 73 * 3600 * 1000).toISOString(),
-    dateReason: 'Trying to exceed the configured duration limit.',
-  });
-  assert.equal(tooLong.status, 400, tooLong.text);
-
   // None of the invalid attempts consumed the decision.
   const detail = await hm.get(`/api/staff/requests/${request.id}`);
   assert.equal(detail.json.request.status, 'pending');
   assert.equal(detail.json.approvals.length, 0, 'no partial approval was recorded');
+
+  // A 100-hour proposal with a reason is accepted — no universal duration cap.
+  const longOk = await hm.post(`/api/staff/requests/${request.id}/decision`, {
+    decision: 'approved',
+    proposedDepartAt,
+    proposedReturnAt: new Date(Date.now() + 130 * 3600 * 1000).toISOString(),
+    dateReason: 'Family requested the full weekend stay after consultation.',
+  });
+  assert.equal(longOk.status, 200, longOk.text);
+  assert.equal(longOk.json.request.status, 'pending_senior', 'external forwards to senior');
+  const hours = (new Date(longOk.json.request.proposedReturnAt)
+    - new Date(longOk.json.request.proposedDepartAt)) / 3600000;
+  assert.ok(hours > 72, 'the stored proposal itself exceeds 72 hours');
 });
 
 test('rejected requests show the reason to the student and cannot proceed', async () => {

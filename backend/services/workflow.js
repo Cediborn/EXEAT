@@ -1,4 +1,4 @@
-import { getDb, newId, nowIso, getNumberSetting } from '../db.js';
+import { getDb, newId, nowIso } from '../db.js';
 import { badRequest, conflict, forbidden, notFound } from '../middleware/errors.js';
 import { validateApplication, HOUSES } from './validate.js';
 import { issuePass, revokePass } from './passes.js';
@@ -223,13 +223,7 @@ export function decide(reviewer, requestId, decision, comment, dateFields = {}) 
         throw badRequest('The proposed return time must be after the proposed departure time.',
           { proposedReturnAt: 'Return must be after departure.' });
       }
-      const hours = (returnDate.getTime() - departDate.getTime()) / 3600000;
-      const maxDuration = getNumberSetting('max_duration_hours', 72);
-      if (hours > maxDuration) {
-        throw badRequest(
-          `The proposed schedule may not exceed ${maxDuration} hours — the school's configured limit.`,
-          { proposedReturnAt: `Shorten the schedule to ${maxDuration} hours or less.` });
-      }
+      // No universal duration cap on proposals either: staff judgment rules.
       proposedDepartAt = departDate.toISOString();
       proposedReturnAt = returnDate.toISOString();
     }

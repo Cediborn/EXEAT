@@ -15,6 +15,9 @@
  * queue removal, student visibility), return-for-correction + resubmit,
  * senior visibility of the housemaster's decision, authorised vs original
  * dates, approved ≠ completed, queue search/filters, and a page-error check.
+ * Plus: contextual duration review (no universal 72-hour cap — long requests
+ * get a warning and can be approved as submitted) and the charcoal dark
+ * theme (default dark, labelled toggle, persistence across reloads).
  *
  * Usage:  node scripts/demo-e2e.mjs
  *         DEMO_E2E_BASE=https://exeat-inky.vercel.app node scripts/demo-e2e.mjs
@@ -930,6 +933,52 @@ async function main() {
     check('authorised schedule survives a page reload', persistedSchedule === true);
     await session.screenshot('12-authorised-schedule');
 
+    /* ---------- 7c. Duration review: no universal cap, staff judgement ---------- */
+    // The student session is still active. Submit a five-day internal outing.
+    const longTrip = await submitRequest(session, {
+      type: 'internal',
+      category: 'personal',
+      reason: 'Purchasing provisions in town and visiting relatives before term resumes.',
+      destination: 'Cape Coast — town',
+      departInHours: 6,
+      returnInHours: 6 + 5 * 24,
+    });
+    check('unusually long internal request is accepted (no automatic 72-hour rejection)',
+      longTrip.ok && longTrip.id, JSON.stringify(longTrip));
+
+    await signOut(session);
+    const hmDur = await staffSignIn(session, 'housemaster');
+    check('housemaster signs in for the duration-review test', hmDur.ok && hmDur.hash === '#/staff', JSON.stringify(hmDur));
+    await session.waitFor("document.querySelectorAll('.table tbody tr').length >= 1", 15000).catch(() => {});
+    const durationReview = await session.evaluate(async (id) => {
+      location.hash = `#/staff/requests/${id}`;
+      await new Promise((r) => setTimeout(r, 1500));
+      const alertShown = [...document.querySelectorAll('.alert-warning')]
+        .some((a) => /Duration review recommended/.test(a.textContent));
+      const showsDuration = document.body.textContent.includes('Duration');
+      const approve = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Approve');
+      if (!approve) return { ok: false, reason: 'no approve button', alertShown, showsDuration };
+      approve.click();
+      await new Promise((r) => setTimeout(r, 500));
+      const confirm = [...document.querySelectorAll('.dialog button')].find((b) => /Yes, approve/.test(b.textContent));
+      if (!confirm) return { ok: false, reason: 'no approve confirm', alertShown, showsDuration };
+      confirm.click();
+      await new Promise((r) => setTimeout(r, 1800));
+      return {
+        ok: true,
+        alertShown,
+        showsDuration,
+        approved: document.body.textContent.includes('Approved'),
+        passIssued: !!document.querySelector('.pass-code-value'),
+      };
+    }, longTrip.id);
+    check('staff detail shows the duration-review warning for long requests',
+      durationReview.alertShown === true, JSON.stringify(durationReview));
+    check('long request can be approved as submitted without date changes',
+      durationReview.ok && durationReview.approved && durationReview.passIssued === true,
+      JSON.stringify(durationReview));
+    await session.screenshot('13-duration-review');
+
     /* ---------- 8. Admin: announcements CRUD ---------- */
     await signOut(session);
     const adminIn = await staffSignIn(session, 'admin');
@@ -993,6 +1042,55 @@ async function main() {
     const dashMobile = await session.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1');
     check('student dashboard has no horizontal scroll at 375px', dashMobile);
     await session.screenshot('10-dashboard-mobile');
+
+    /* ---------- 9b. Charcoal dark mode + persistent theme toggle ---------- */
+    await session.setViewport(1024, 800);
+    await session.goto(`${BASE}/`);
+    await session.waitFor("!!document.querySelector('.hero h1')", 15000);
+    const themeDefault = await session.evaluate(() => ({
+      theme: document.documentElement.getAttribute('data-theme'),
+      bodyBg: getComputedStyle(document.body).backgroundColor,
+    }));
+    check('new visitors get the charcoal dark theme by default',
+      themeDefault.theme === 'dark' && themeDefault.bodyBg === 'rgb(32, 33, 36)',
+      JSON.stringify(themeDefault));
+
+    const darkSurfaces = await session.evaluate(() => {
+      const step = document.querySelector('.step');
+      return step ? getComputedStyle(step).backgroundColor : null;
+    });
+    check('dark theme paints panels charcoal (no white cards)',
+      !!darkSurfaces && darkSurfaces !== 'rgb(255, 255, 255)', darkSurfaces);
+
+    const themeToggleRun = await session.evaluate(async () => {
+      const btn = document.querySelector('.theme-toggle');
+      if (!btn) return { ok: false, reason: 'no theme toggle button' };
+      const labelled = (btn.getAttribute('aria-label') || '').includes('theme');
+      btn.click();
+      await new Promise((r) => setTimeout(r, 300));
+      const light = document.documentElement.getAttribute('data-theme') === 'light'
+        && localStorage.getItem('entryout-theme') === 'light'
+        && getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)';
+      return { ok: true, labelled, light };
+    });
+    check('theme toggle is labelled and switches to light',
+      themeToggleRun.ok && themeToggleRun.labelled && themeToggleRun.light, JSON.stringify(themeToggleRun));
+    await session.screenshot('14-theme-light');
+
+    await session.goto(`${BASE}/#/signin`);
+    await sleep(1200);
+    const themePersisted = await session.evaluate(
+      "document.documentElement.getAttribute('data-theme') === 'light' && localStorage.getItem('entryout-theme') === 'light'");
+    check('light theme persists across a full page reload', themePersisted === true);
+
+    const themeBack = await session.evaluate(async () => {
+      document.querySelector('.theme-toggle')?.click();
+      await new Promise((r) => setTimeout(r, 300));
+      return document.documentElement.getAttribute('data-theme') === 'dark'
+        && localStorage.getItem('entryout-theme') === 'dark';
+    });
+    check('toggling back restores the dark theme', themeBack === true);
+    await session.screenshot('15-theme-dark');
 
     /* ---------- 10. Reference integrity + page errors ---------- */
     check('internal reference from confirmation is stable', /^EXE-\d{4}-\d{4}$/.test(internalRef || ''), internalRef || 'none');

@@ -257,7 +257,7 @@ export function adminPage() {
       const data = await apiGet('/api/admin/settings');
       const fields = {
         external_min_notice_hours: { label: 'Minimum notice for external exeats (hours)', min: 0, max: 168 },
-        max_duration_hours: { label: 'Maximum exeat duration (hours)', min: 1, max: 720 },
+        max_duration_hours: { label: 'Duration review guidance (hours) — advisory, never blocking', min: 1, max: 720 },
         return_grace_minutes: { label: 'Grace period after expected return (minutes)', min: 0, max: 1440 },
         early_departure_minutes: { label: 'Early departure allowed (minutes)', min: 0, max: 720 },
         emergency_contact_phone: { label: 'Emergency contact number shown for urgent requests', text: true },

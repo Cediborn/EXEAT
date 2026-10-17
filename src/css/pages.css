@@ -52,7 +52,7 @@
   .hero-visual { display: block; }
 }
 .hero-pass {
-  background: var(--white);
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
@@ -93,7 +93,7 @@
   padding: var(--space-6);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--white);
+  background: var(--card);
   transition: border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease), transform var(--duration) var(--ease);
 }
 .step:hover {
@@ -167,7 +167,7 @@
   padding: var(--space-5);
   border-radius: var(--radius-lg);
   border: 1.5px solid var(--border);
-  background: var(--white);
+  background: var(--card);
   cursor: pointer;
   transition: all var(--duration) var(--ease);
 }
@@ -218,7 +218,7 @@
   border-radius: var(--radius-xl);
   overflow: hidden;
   border: 1px solid var(--border);
-  background: var(--white);
+  background: var(--card);
   box-shadow: var(--shadow-md);
 }
 .pass-head {
@@ -320,8 +320,8 @@
   border: 2px solid;
   margin-bottom: var(--space-5);
 }
-.gate-verdict.is-valid { background: var(--green-50); border-color: var(--green-600); color: #14532D; }
-.gate-verdict.is-invalid { background: var(--red-50); border-color: var(--red-600); color: var(--red-700); }
+.gate-verdict.is-valid { background: var(--green-50); border-color: var(--green-600); color: var(--success-strong); }
+.gate-verdict.is-invalid { background: var(--red-50); border-color: var(--red-600); color: var(--danger-text); }
 .gate-verdict-icon {
   width: 3rem;
   height: 3rem;
@@ -329,7 +329,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--gate-icon-bg);
   font-size: var(--text-xl);
   font-weight: 800;
   flex: none;
@@ -343,7 +343,7 @@
   padding: var(--space-5);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  background: var(--white);
+  background: var(--card);
 }
 .announce-head {
   display: flex;
@@ -403,7 +403,7 @@
   padding: var(--space-5);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--white);
+  background: var(--card);
 }
 .help-num {
   flex: none;

@@ -76,10 +76,14 @@ test('external requests need a guardian contact', () => {
   assert.ok(result.errors.guardianPhone);
 });
 
-test('trips longer than the maximum duration are rejected', () => {
+test('long trips are accepted — duration is reviewed by staff, never auto-capped', () => {
+  // Ten days: previously rejected by the universal 72-hour cap. Duration is
+  // now a staff-review judgement (with advisory guidance), not a hard limit.
   const result = validateApplication(payload({ returnDate: '2026-03-20' }), { now: NOW });
-  assert.equal(result.ok, false);
-  assert.match(result.errors.returnAt, /exceed/i);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  const depart = new Date(result.value.departAt);
+  const back = new Date(result.value.returnAt);
+  assert.ok((back - depart) / 3600000 > 72, 'the trip really does exceed 72 hours');
 });
 
 test('urgent flag is limited to medical categories', () => {

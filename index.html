@@ -20,6 +20,17 @@
   <link rel="stylesheet" href="./src/css/components.css">
   <link rel="stylesheet" href="./src/css/pages.css">
   <script src="./config.js"></script>
+  <script>
+    /* Apply the stored theme before first paint — dark (charcoal) is the
+       default for new visitors, so nothing flashes the wrong colour. */
+    (function () {
+      var theme = null;
+      try { theme = localStorage.getItem('entryout-theme'); } catch (e) { /* private mode */ }
+      if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+    })();
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>

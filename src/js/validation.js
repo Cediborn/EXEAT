@@ -28,7 +28,6 @@ export const CLASS_YEARS = ['SHS 1', 'SHS 2', 'SHS 3'];
 
 export const POLICIES = {
   externalMinNoticeHours: 24,
-  maxDurationHours: 72,
 };
 
 export function isPhone(value) {
@@ -65,15 +64,10 @@ export function validateApplicationForm(values, { now = new Date(), policies = P
   if (!departAt) errors.departAt = 'Enter a valid departure date and time.';
   if (!returnAt) errors.returnAt = 'Enter a valid return date and time.';
 
-  if (departAt && returnAt) {
-    if (returnAt <= departAt) errors.returnAt = 'Return time must be after departure time.';
-    else {
-      const hours = (returnAt - departAt) / 3600000;
-      if (hours > policies.maxDurationHours) {
-        errors.returnAt = `An exeat may not exceed ${policies.maxDurationHours} hours.`;
-      }
-    }
+  if (departAt && returnAt && returnAt <= departAt) {
+    errors.returnAt = 'Return time must be after departure time.';
   }
+  // No universal duration cap — staff review long requests in context.
 
   if (departAt && departAt.getTime() < now.getTime() - 60 * 1000) {
     errors.departAt = 'Departure time cannot be in the past.';

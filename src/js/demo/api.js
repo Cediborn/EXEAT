@@ -103,16 +103,10 @@ function validateApplication(db, body, { now = new Date() } = {}) {
 
   value.urgent = body.urgent === true || body.urgent === 'true' || body.urgent === 1;
 
-  if (value.departAt && value.returnAt) {
-    if (value.returnAt.getTime() <= value.departAt.getTime()) {
-      errors.returnAt = 'Return time must be after departure time.';
-    } else {
-      const maxDuration = numSetting(db, 'max_duration_hours', 72);
-      const hours = (value.returnAt - value.departAt) / 3600000;
-      if (hours > maxDuration) {
-        errors.returnAt = `An exeat may not exceed ${maxDuration} hours. Plan a shorter visit or speak to your housemaster.`;
-      }
-    }
+  if (value.departAt && value.returnAt && value.returnAt.getTime() <= value.departAt.getTime()) {
+    errors.returnAt = 'Return time must be after departure time.';
+    // No universal duration cap: staff review the purpose and duration in
+    // context (max_duration_hours is advisory guidance only).
   }
 
   if (value.type === 'external' && value.departAt) {
@@ -581,13 +575,7 @@ function decide(db, reviewer, requestId, decision, comment, dateFields = {}) {
         throw demoError(400, 'The proposed return time must be after the proposed departure time.',
           { proposedReturnAt: 'Return must be after departure.' });
       }
-      const hours = (returnDate.getTime() - departDate.getTime()) / 3600000;
-      const maxDuration = numSetting(db, 'max_duration_hours', 72);
-      if (hours > maxDuration) {
-        throw demoError(400,
-          `The proposed schedule may not exceed ${maxDuration} hours — the school's configured limit.`,
-          { proposedReturnAt: `Shorten the schedule to ${maxDuration} hours or less.` });
-      }
+      // No universal duration cap on proposals either: staff judgment rules.
       proposedDepartAt = departDate.toISOString();
       proposedReturnAt = returnDate.toISOString();
     }
