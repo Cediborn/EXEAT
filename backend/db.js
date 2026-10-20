@@ -12,6 +12,9 @@ export function getDb() {
   fs.mkdirSync(dir, { recursive: true });
   db = new DatabaseSync(config.databasePath);
   db.exec('PRAGMA journal_mode = WAL');
+  // Wait up to 5s for write locks instead of failing: the app may run in
+  // multi-process hosting (Passenger) where several workers share the file.
+  db.exec('PRAGMA busy_timeout = 5000');
   db.exec('PRAGMA foreign_keys = ON');
   runMigrations(db);
   seedSettings(db);

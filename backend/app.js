@@ -66,7 +66,21 @@ export function createApp() {
   app.use('/public', express.static(path.join(ROOT, 'public'), staticHeaders));
   app.use('/src', express.static(path.join(ROOT, 'src'), { ...staticHeaders, immutable: false }));
   app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'index.html')));
-  app.get('/config.js', (req, res) => res.sendFile(path.join(ROOT, 'config.js')));
+  // Frontend runtime config is generated from the backend's own configuration
+  // so the browser and server can never disagree: devBypassAuth follows the
+  // server kill-switch (always false when NODE_ENV=production) and demoMode is
+  // always false here — this server has a real database, never fake data.
+  app.get('/config.js', (req, res) => {
+    res.type('application/javascript');
+    res.set('Cache-Control', 'no-store');
+    res.send(`window.ENTRYOUT_CONFIG = {
+  apiBase: '',
+  appName: 'Entryout',
+  devBypassAuth: ${config.devBypassAuth ? 'true' : 'false'},
+  demoMode: false,
+};
+`);
+  });
   // SPA fallback (Express 5 syntax): serve the app shell for any other page URL.
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
