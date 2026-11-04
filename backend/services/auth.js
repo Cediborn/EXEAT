@@ -75,16 +75,18 @@ export function purgeExpiredSessions() {
 }
 
 export function setSessionCookies(res, session) {
-  const secure = config.cookieSecure;
+  const secure = config.cookieSecure ? '; Secure' : '';
+  const sameSite = config.cookieSameSite;
   const maxAge = config.sessionTtlHours * 3600 * 1000;
-  res.append('Set-Cookie', `${SESSION_COOKIE}=${session.id}; HttpOnly; Path=/; Max-Age=${maxAge / 1000}; SameSite=${secure ? 'None' : 'Lax'}${secure ? '; Secure' : ''}`);
-  res.append('Set-Cookie', `${CSRF_COOKIE}=${session.csrf}; Path=/; Max-Age=${maxAge / 1000}; SameSite=${secure ? 'None' : 'Lax'}; ${secure ? 'Secure' : ''}`);
+  res.append('Set-Cookie', `${SESSION_COOKIE}=${session.id}; HttpOnly; Path=/; Max-Age=${maxAge / 1000}; SameSite=${sameSite}${secure}`);
+  res.append('Set-Cookie', `${CSRF_COOKIE}=${session.csrf}; Path=/; Max-Age=${maxAge / 1000}; SameSite=${sameSite}${secure}`);
 }
 
 export function clearSessionCookies(res) {
-  const secure = config.cookieSecure;
-  res.append('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=${secure ? 'None' : 'Lax'}${secure ? '; Secure' : ''}`);
-  res.append('Set-Cookie', `${CSRF_COOKIE}=; Path=/; Max-Age=0; SameSite=${secure ? 'None' : 'Lax'}${secure ? '; Secure' : ''}`);
+  const secure = config.cookieSecure ? '; Secure' : '';
+  const sameSite = config.cookieSameSite;
+  res.append('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=${sameSite}${secure}`);
+  res.append('Set-Cookie', `${CSRF_COOKIE}=; Path=/; Max-Age=0; SameSite=${sameSite}${secure}`);
 }
 
 export function readCookies(req) {

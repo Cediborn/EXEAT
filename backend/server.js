@@ -23,7 +23,29 @@ const app = createApp();
 const server = app.listen(config.port, () => {
   console.log(`Entryout API listening on port ${config.port} (${config.nodeEnv})`);
   console.log(`Database: ${config.databasePath}`);
+  warnAboutBrowserConfig();
 });
+
+/**
+ * A browser on another origin can only use this API when CORS is configured for
+ * it and the session cookies are cross-site capable. Both are silent failures
+ * (the site simply cannot sign in), so make the cause visible at boot.
+ */
+function warnAboutBrowserConfig() {
+  if (config.isTest) return;
+  if (config.allowedOrigins.length === 0) {
+    console.warn(
+      'CORS: ALLOWED_ORIGINS is empty, so no other origin may call this API. ' +
+        'Add the site origin (e.g. ALLOWED_ORIGINS=https://cediborn.github.io) to .env if the frontend is hosted separately.',
+    );
+  }
+  if (config.isProduction && !config.cookieSecure) {
+    console.warn(
+      'Cookies: COOKIE_SECURE is not true, so session cookies use SameSite=Lax and will be dropped on cross-site requests. ' +
+        'Set COOKIE_SECURE=true when the API is served over HTTPS and the frontend is on another origin.',
+    );
+  }
+}
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

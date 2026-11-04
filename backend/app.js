@@ -22,10 +22,12 @@ export function createApp() {
   // than the API, so allowed origins are configured explicitly with credentials.
   app.use((req, res, next) => {
     const origin = req.get('origin');
-    if (origin && config.allowedOrigins.includes(origin)) {
+    // Any response may differ per origin (the CORS headers are conditional),
+    // so caches must key on Origin even when this one is not allowed.
+    res.set('Vary', 'Origin');
+    if (origin && config.allowedOrigins.includes(origin.toLowerCase())) {
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Access-Control-Allow-Credentials', 'true');
-      res.set('Vary', 'Origin');
       res.set('Access-Control-Allow-Headers', 'content-type,x-csrf-token,idempotency-key');
       res.set('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
       res.set('Access-Control-Max-Age', '600');

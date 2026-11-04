@@ -41,6 +41,15 @@ const list = (key, fallback = []) => {
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 };
 
+/**
+ * Browsers send origins without a trailing slash and always lower-cased
+ * ("https://cediborn.github.io"), so a value pasted into .env with a slash or
+ * capitals would never match. Normalise instead of silently blocking the site.
+ */
+const normalizeOrigin = (value) => value.trim().replace(/\/+$/, '').toLowerCase();
+
+const cookieSecure = process.env.COOKIE_SECURE === 'true';
+
 const nodeEnv = process.env.NODE_ENV || 'development';
 
 /**
@@ -59,12 +68,16 @@ export const config = {
   devBypassAuth: nodeEnv !== 'production' && !['false', '0', 'off', 'no'].includes(bypassKillSwitch),
   port: num('PORT', 8787),
   apiPublicUrl: (process.env.API_PUBLIC_URL || `http://localhost:${num('PORT', 8787)}`).replace(/\/$/, ''),
-  allowedOrigins: list('ALLOWED_ORIGINS'),
+  allowedOrigins: [...new Set(list('ALLOWED_ORIGINS').map(normalizeOrigin).filter(Boolean))],
   databasePath: process.env.DATABASE_PATH
     ? path.resolve(ROOT, process.env.DATABASE_PATH)
     : path.join(ROOT, 'data', 'entryout.sqlite'),
   sessionTtlHours: num('SESSION_TTL_HOURS', 12),
-  cookieSecure: process.env.COOKIE_SECURE === 'true',
+  // A cross-origin API can only receive the session cookie when it is both
+  // SameSite=None and Secure, so the two settings are tied together here
+  // instead of being derived in two places.
+  cookieSecure,
+  cookieSameSite: cookieSecure ? 'None' : 'Lax',
   rateLimits: {
     loginPerIdentifier: num('LOGIN_RATE_LIMIT_MAX', 8),
     loginPerIp: num('LOGIN_RATE_LIMIT_IP_MAX', 30),
