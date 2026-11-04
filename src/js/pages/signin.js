@@ -59,7 +59,7 @@ export function signInPage({ query }) {
       try {
         const data = await signIn(identifierInput.value.trim(), passwordInput.value);
         toast(`Welcome back, ${data.user.fullName.split(' ')[0]}.`, { type: 'success' });
-        navigate(homeFor(data.user.role));
+        navigate(nextPath(query.next) || homeFor(data.user.role));
       } catch (err) {
         const message = err instanceof ApiError ? err.message : 'Sign-in failed. Please try again.';
         formError.textContent = message;
@@ -91,6 +91,16 @@ export function signInPage({ query }) {
               ' · ',
               h('a', { href: '#/signin' }, 'Staff sign in'))
           : h('span', null, h('a', { href: '#/signin?role=student' }, 'Student sign in')))));
+}
+
+/**
+ * `?next=` is set by the route guard and the expired-session handler. Only an
+ * in-app hash path is accepted, so the parameter can never send a browser off
+ * to another site.
+ */
+function nextPath(raw) {
+  if (typeof raw !== 'string' || !raw.startsWith('/') || raw.startsWith('//')) return null;
+  return `#${raw}`;
 }
 
 function homeFor(role) {

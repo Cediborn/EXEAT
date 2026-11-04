@@ -1,9 +1,9 @@
 import { qs } from './dom.js';
 import { route, setNotFound, startRouter, navigate, currentRoutePath, reloadRoute } from './router.js';
-import { session, loadSession, homeRouteFor } from './auth.js';
+import { session, loadSession, homeRouteFor, clearSession } from './auth.js';
 import { renderShell, showBanner, setTitle, closeMobileNav } from './components/shell.js';
-import { loadingBlock } from './components/ui.js';
-import { checkHealth } from './api.js';
+import { loadingBlock, toast } from './components/ui.js';
+import { checkHealth, setUnauthorizedHandler } from './api.js';
 import { DEMO_MODE } from './config.js';
 
 import { landingPage } from './pages/landing.js';
@@ -97,6 +97,7 @@ async function boot() {
   renderShell();
   session.listeners.add(() => renderShell());
   onChangeKeepHash();
+  setUnauthorizedHandler(handleExpiredSession);
 
   const [reachable] = await Promise.all([checkHealth(), loadSession()]);
   if (DEMO_MODE) {
@@ -116,6 +117,18 @@ async function boot() {
   registerRoutes();
   startRouter();
   document.title = 'Entryout — Your exeat, simplified';
+}
+
+/**
+ * The server rejected a session this tab still believed in (expired, revoked,
+ * or ended in another tab). Clear it once and send the user to sign in, keeping
+ * the page they were on so they can return to it.
+ */
+function handleExpiredSession() {
+  if (!session.user) return;
+  clearSession();
+  toast('Your session has ended. Sign in again to continue.', { type: 'error', title: 'Session expired' });
+  navigate(`#/signin?next=${encodeURIComponent(currentRoutePath())}`, { replace: true });
 }
 
 /** Re-render the shell when the route changes (active nav state). */

@@ -38,6 +38,20 @@ export function setCsrfToken(token) {
   sessionCsrfToken = token || null;
 }
 
+/**
+ * Registered by the shell. Called when a request is rejected with 401 outside
+ * the sign-in flow, i.e. the browser still holds (or thinks it holds) a session
+ * the server no longer accepts. Without this, every page shows its own
+ * "unauthorised" error and the user is left stuck on a screen that cannot work.
+ */
+let unauthorizedHandler = null;
+
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = fn || null;
+}
+
+const AUTH_PATHS = '/api/auth/';
+
 export async function api(path, { method = 'GET', body, headers = {}, query } = {}) {
   if (DEMO_MODE) {
     // Hosted demo: every endpoint is answered in-browser by the demo adapter
@@ -94,6 +108,11 @@ export async function api(path, { method = 'GET', body, headers = {}, query } = 
 
   if (!res.ok) {
     const message = (data && data.error) || `Request failed (${res.status}).`;
+    // Login/register/logout/me answer 401 as a normal outcome (wrong password,
+    // signed out, anonymous visitor), so only other endpoints escalate.
+    if (res.status === 401 && !path.startsWith(AUTH_PATHS)) {
+      unauthorizedHandler?.(message);
+    }
     throw new ApiError(res.status, message, data && data.errors);
   }
   return data;

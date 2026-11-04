@@ -69,12 +69,20 @@ export async function signOut() {
   try {
     await apiPost('/api/auth/logout', {});
   } finally {
-    session.user = null;
-    session.profile = null;
-    session.houses = [];
-    setCsrfToken(null);
-    emit();
+    clearSession();
   }
+}
+
+/**
+ * Forget the cached session in this tab without calling the API — used when the
+ * server has already rejected it (expired or revoked) and when signing out.
+ */
+export function clearSession() {
+  session.user = null;
+  session.profile = null;
+  session.houses = [];
+  setCsrfToken(null);
+  emit();
 }
 
 /**
