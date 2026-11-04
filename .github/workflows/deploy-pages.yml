@@ -28,12 +28,16 @@ jobs:
           mkdir -p dist
           cp index.html dist/
           cp -r src public dist/
-          # Hosted demonstration build: demoMode routes every API call to the
-          # in-browser demo adapter (src/js/demo/api.js) backed by
-          # localStorage — no backend, no external auth. Visitors get the
-          # full student/staff/gate/admin flows with per-browser sample data.
-          printf "window.ENTRYOUT_CONFIG = { apiBase: '', appName: 'Entryout', devBypassAuth: false, demoMode: true };\n" \
-            > dist/config.js
+
+      # Hosted demonstration by default: demoMode routes every API call to the
+      # in-browser demo adapter (src/js/demo/api.js) backed by localStorage — no
+      # backend, no external auth. To use a real API instead, set repository
+      # variables ENTRYOUT_API_BASE and ENTRYOUT_DEMO_MODE=false.
+      - name: Write runtime config
+        env:
+          ENTRYOUT_API_BASE: ${{ vars.ENTRYOUT_API_BASE }}
+          ENTRYOUT_DEMO_MODE: ${{ vars.ENTRYOUT_DEMO_MODE || 'true' }}
+        run: node scripts/write-config.mjs dist/config.js
 
       - uses: actions/upload-pages-artifact@v3
         with:

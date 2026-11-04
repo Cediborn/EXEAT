@@ -16,14 +16,25 @@ and deploys with the official Pages actions (OIDC — no tokens to store).
 - Pages URL: `https://cediborn.github.io/EXEAT/`
 - Vercel URL: `https://exeat-inky.vercel.app/`
 - Hash routing means no 404/rewrite configuration is needed.
-- **Demo mode is the shipped configuration**: both deploy pipelines write
+- **Demo mode is the default configuration**: both deploy pipelines write
   `demoMode: true, devBypassAuth: false` into the generated `config.js`, so every API call
   is served in-browser by the demo adapter (`src/js/demo/api.js`) from localStorage —
   no backend, no external auth, per-browser data. Nothing is ever faked invisibly: the app
   shows a "Demo mode" banner and a `Demo · <Role>` header badge.
-- To wire a real backend instead: set `demoMode: false` and point `apiBase` at the API's
-  public URL in the generated config (`deploy-pages.yml` printf / `scripts/vercel-build.mjs`),
-  and set `API_BASE_URL` if you reintroduce a variable-driven `apiBase`.
+- The generated `config.js` is written by `scripts/write-config.mjs` from environment
+  variables, so no build file needs editing:
+
+  | Variable | Meaning |
+  |---|---|
+  | `ENTRYOUT_API_BASE` | Absolute API URL, e.g. `https://entryout-api.onrender.com`. Empty = same origin. |
+  | `ENTRYOUT_DEMO_MODE` | `true` (default on both hosts) serves every call from the in-browser adapter. |
+  | `ENTRYOUT_APP_NAME` | Display name, default `Entryout`. |
+  | `ENTRYOUT_DEV_BYPASS_AUTH` | Leave unset/false on hosted builds. |
+
+  GitHub Pages reads them from repository **variables** (Settings → Secrets and variables
+  → Actions → Variables); Vercel reads them from the project's environment variables.
+- To wire a real backend: set `ENTRYOUT_API_BASE` to the API's public URL and
+  `ENTRYOUT_DEMO_MODE=false`, then push — both hosts redeploy.
 - GitHub Pages must be enabled with source **GitHub Actions** (done via
   `POST /repos/Cediborn/EXEAT/pages {"build_type":"workflow"}`).
 

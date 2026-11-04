@@ -88,10 +88,13 @@ adapter (`src/js/demo/api.js`) against versioned localStorage data
   adapter with the same validation and role rules as the backend.
 - Bumping `VERSION` in `src/js/demo/store.js` wipes and re-seeds visitor data on next load.
 
-The hosted configs are written at build time: Vercel by `scripts/vercel-build.mjs`
-(`vercel.json` `buildCommand`), Pages by the printf in `deploy-pages.yml`. The root
-`config.js` keeps `demoMode: false` so local development always runs against the real
-backend on `http://localhost:8787`.
+The hosted configs are written at build time by `scripts/write-config.mjs`: Vercel runs it
+from `scripts/vercel-build.mjs` (`vercel.json` `buildCommand`), Pages runs it in
+`deploy-pages.yml`. Both read `ENTRYOUT_API_BASE`, `ENTRYOUT_DEMO_MODE` and
+`ENTRYOUT_APP_NAME` from the host's environment (see [docs/deployment.md](docs/deployment.md)),
+so pointing a hosted site at a real API needs no code change. The root `config.js` keeps
+`demoMode: false` so local development always runs against the real backend on
+`http://localhost:8787`.
 
 ### Development bypass (local only)
 
