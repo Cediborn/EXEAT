@@ -1,5 +1,4 @@
 import { API_BASE, DEMO_MODE } from './config.js';
-import { demoHandle } from './demo/api.js';
 
 /**
  * Thin API client.
@@ -52,12 +51,30 @@ export function setUnauthorizedHandler(fn) {
 
 const AUTH_PATHS = '/api/auth/';
 
+/**
+ * The demo adapter is a complete in-browser backend (validation, workflow,
+ * localStorage persistence). Only hosted demo builds use it, so it is imported
+ * on first use instead of every visitor downloading it before the app boots.
+ */
+let demoAdapter = null;
+function loadDemoAdapter() {
+  demoAdapter ||= import('./demo/api.js').catch((err) => {
+    demoAdapter = null; // a failed load must not poison later attempts
+    throw err;
+  });
+  return demoAdapter;
+}
+
 export async function api(path, { method = 'GET', body, headers = {}, query } = {}) {
   if (DEMO_MODE) {
     // Hosted demo: every endpoint is answered in-browser by the demo adapter
     // (localStorage-backed), so the full UI works without a backend.
+    const adapter = await loadDemoAdapter().catch(() => {
+      apiState.reachable = false;
+      throw new ApiError(0, 'Could not load the demo data in this browser. Reload the page and try again.');
+    });
     try {
-      const data = await demoHandle(method, path, { body, query, headers });
+      const data = await adapter.demoHandle(method, path, { body, query, headers });
       apiState.reachable = true;
       apiState.lastError = null;
       return data;
