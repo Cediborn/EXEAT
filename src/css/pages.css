@@ -208,7 +208,7 @@
   font-size: var(--text-xs);
 }
 .stepper-item.is-active { color: var(--accent-strong); }
-.stepper-item.is-active .stepper-dot { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--white); }
+.stepper-item.is-active .stepper-dot { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--white); }
 .stepper-item.is-done { color: var(--green-600); }
 .stepper-item.is-done .stepper-dot { background: var(--green-50); border-color: var(--green-600); color: var(--green-600); }
 .stepper-sep { color: var(--ink-400); }
@@ -410,7 +410,7 @@
   width: 2rem;
   height: 2rem;
   border-radius: 50%;
-  background: var(--accent-strong);
+  background: var(--accent-fill);
   color: var(--white);
   font-weight: 700;
   display: flex;

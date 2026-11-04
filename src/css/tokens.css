@@ -37,6 +37,9 @@
   --text-muted: var(--ink-500);
   --accent: var(--coral-400);
   --accent-strong: var(--red-600);
+  /* Accent used as a surface behind white text (buttons, step markers). Kept
+     separate from --accent-strong, which is accent as text and borders. */
+  --accent-fill: var(--red-600);
   --accent-soft: var(--pale-red);
   --accent-hover: var(--red-700);
 
@@ -129,8 +132,12 @@ html[data-theme="dark"] {
   --ink-400: #7B7D86;
 
   --accent: var(--coral-400);
-  --accent-strong: #D64545;
-  --accent-hover: #E05252;
+  /* On charcoal the mid red (#D64545) only reached 3.2:1 as text, so accent
+     text uses the lighter coral (≈5.0:1 on cards, ≈5.8:1 on the page) and
+     accent surfaces behind white text use a darker fill (≈5.4:1). */
+  --accent-strong: var(--coral-400);
+  --accent-fill: #BE3A3A;
+  --accent-hover: #A93333;
   --accent-soft: #3A2226;
 
   --header-bg: rgba(32, 33, 36, 0.92);

@@ -28,7 +28,7 @@
   padding: 0 var(--space-5);
   border-radius: var(--radius);
   border: 1px solid transparent;
-  background: var(--accent-strong);
+  background: var(--accent-fill);
   color: var(--white);
   font-weight: 600;
   font-size: var(--text-base);
